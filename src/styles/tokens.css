@@ -1,0 +1,23 @@
+:root {
+  --bg-primary: #020202;
+  --bg-secondary: #101010;
+  --bg-card: #1f1d1c;
+  --bg-elevated: #fafafa;
+  --text-primary: #eeeeee;
+  --text-secondary: #a49d9a;
+  --text-muted: #8a8380;
+  --text-faint: #4d4947;
+  --text-inverted: #020202;
+  --accent: #ee6018;
+  --accent-hover: #ef6f2e;
+  --border: #2e2c2b;
+  --border-hover: #3d3a39;
+  --success: #22c55e;
+  --warning: #eab308;
+  --error: #ef4444;
+
+  --sidebar-width: 220px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}

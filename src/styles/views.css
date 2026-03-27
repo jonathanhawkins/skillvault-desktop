@@ -1,0 +1,237 @@
+/* View header */
+.view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.view-header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Installed view */
+.installed-section {
+  margin-bottom: 32px;
+}
+
+.installed-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.installed-section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.66px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.installed-section-label::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.installed-section-count {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* Browse view */
+.browse-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.browse-results-info {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-bottom: 16px;
+}
+
+.browse-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+}
+
+/* Package detail view */
+.detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.44px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 24px;
+  transition: color 0.15s;
+}
+
+.detail-back:hover {
+  color: var(--text-primary);
+}
+
+.detail-hero {
+  margin-bottom: 32px;
+}
+
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.detail-name {
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: -0.84px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.detail-tagline {
+  font-size: 15px;
+  color: var(--text-secondary);
+  line-height: 22px;
+  margin-bottom: 16px;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.detail-stats {
+  display: flex;
+  gap: 20px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.detail-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-stat-value {
+  font-family: 'Geist', sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.detail-stat-label {
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.detail-description {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--text-secondary);
+}
+
+.detail-description p {
+  margin-bottom: 12px;
+}
+
+.detail-description code {
+  font-family: 'Geist Mono', monospace;
+  font-size: 13px;
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+/* Settings view */
+.settings-section {
+  margin-bottom: 32px;
+  max-width: 560px;
+}
+
+.settings-label {
+  display: block;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.66px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.settings-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: border-color 0.15s;
+}
+
+.settings-input:focus {
+  border-color: var(--border-hover);
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 6px;
+}
+
+.settings-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.settings-row .settings-input {
+  flex: 1;
+}
+
+/* Publish view */
+.publish-select-card--selected {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.publish-field {
+  margin-bottom: 16px;
+}
+
+.publish-field select.settings-input {
+  appearance: auto;
+  cursor: pointer;
+}

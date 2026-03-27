@@ -1,0 +1,684 @@
+use crate::api::auth;
+use crate::api::client::ApiClient;
+use crate::installer;
+use crate::scanner;
+use crate::state::{AppState, CategoryCount, LocalState, MarketplacePlugin, Package, PackagedSkill, PackageSearchResult, PluginDetail, PlatformStats, ProjectInfo, SkillDetail, SkillFile, SkillvaultMeta};
+use base64::Engine;
+use serde::Deserialize;
+use std::io::{Cursor, Write};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use zip::write::SimpleFileOptions;
+
+#[tauri::command]
+pub async fn scan_local(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Result<LocalState, String> {
+    let local_state = scanner::scan_all()?;
+    let mut app = state.lock().await;
+    app.local_state = Some(local_state.clone());
+    Ok(local_state)
+}
+
+#[tauri::command]
+pub async fn search_packages(
+    query: String,
+    category: Option<String>,
+    sort: Option<String>,
+    page: u32,
+    limit: u32,
+) -> Result<PackageSearchResult, String> {
+    let client = ApiClient::new(None);
+    client
+        .search_packages(
+            &query,
+            category.as_deref(),
+            sort.as_deref(),
+            page,
+            limit,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn get_package(author: String, name: String) -> Result<Package, String> {
+    let client = ApiClient::new(None);
+    client.get_package(&author, &name).await
+}
+
+#[tauri::command]
+pub async fn get_trending() -> Result<Vec<Package>, String> {
+    let client = ApiClient::new(None);
+    client.get_trending().await
+}
+
+#[tauri::command]
+pub async fn get_categories() -> Result<Vec<CategoryCount>, String> {
+    let client = ApiClient::new(None);
+    client.get_categories().await
+}
+
+#[tauri::command]
+pub async fn get_platform_stats() -> Result<PlatformStats, String> {
+    let client = ApiClient::new(None);
+    client.get_stats().await
+}
+
+#[tauri::command]
+pub async fn install_package(
+    author: String,
+    name: String,
+    install_path: Option<String>,
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) -> Result<String, String> {
+    let token = {
+        let app = state.lock().await;
+        app.auth_token.clone()
+    };
+
+    installer::install(&author, &name, token.as_deref(), install_path.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn uninstall_skill(skill_name: String) -> Result<(), String> {
+    installer::uninstall(&skill_name)
+}
+
+#[tauri::command]
+pub async fn check_updates(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Result<Vec<UpdateInfo>, String> {
+    let local = {
+        let app = state.lock().await;
+        app.local_state.clone()
+    };
+
+    let local = local.ok_or("No local state — run scan first")?;
+    let client = ApiClient::new(None);
+    let mut updates = Vec::new();
+
+    for skill in &local.skills {
+        if let (Some(pkg_id), Some(installed_ver)) =
+            (&skill.package_id, &skill.installed_version)
+        {
+            let parts = pkg_id.splitn(2, '/').collect::<Vec<&str>>();
+            if parts.len() != 2 {
+                continue;
+            }
+
+            if let Ok(pkg) = client.get_package(parts[0], parts[1]).await {
+                if pkg.current_version != *installed_ver {
+                    updates.push(UpdateInfo {
+                        skill_name: skill.name.clone(),
+                        package_id: pkg_id.clone(),
+                        installed_version: installed_ver.clone(),
+                        latest_version: pkg.current_version,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(updates)
+}
+
+#[tauri::command]
+pub async fn set_auth_token(token: String, state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Result<(), String> {
+    // Validate token format
+    if !token.starts_with("svt_") {
+        return Err("Invalid token format — must start with 'svt_'".to_string());
+    }
+
+    // Save to keychain
+    auth::save_token(&token)?;
+
+    // Update app state
+    let mut app = state.lock().await;
+    app.auth_token = Some(token);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_auth_status(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Result<AuthStatus, String> {
+    let mut app = state.lock().await;
+
+    // If no token in memory, try loading from keychain
+    if app.auth_token.is_none() {
+        if let Some(token) = auth::get_token() {
+            app.auth_token = Some(token);
+        }
+    }
+
+    let has_token = app.auth_token.is_some();
+    Ok(AuthStatus {
+        authenticated: has_token,
+    })
+}
+
+#[tauri::command]
+pub async fn clear_auth_token(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Result<(), String> {
+    // Delete from keychain
+    let _ = auth::delete_token();
+
+    // Clear from app state
+    let mut app = state.lock().await;
+    app.auth_token = None;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_projects() -> Result<Vec<ProjectInfo>, String> {
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let projects_dir = home.join(".claude").join("projects");
+
+    if !projects_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut projects = Vec::new();
+
+    let entries = std::fs::read_dir(&projects_dir)
+        .map_err(|e| format!("Failed to read projects dir: {}", e))?;
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+
+        if !file_type.is_dir() {
+            continue;
+        }
+
+        let encoded_name = entry.file_name().to_string_lossy().to_string();
+
+        // Use smart path decoder that handles hyphens in directory names
+        let decoded_path = match crate::scanner::rules::decode_project_path_pub(&encoded_name) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        let path = std::path::Path::new(&decoded_path);
+
+        // Derive a friendly name from the last path component
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| decoded_path.clone());
+
+        projects.push(ProjectInfo {
+            name,
+            path: decoded_path,
+            encoded_name,
+        });
+    }
+
+    projects.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(projects)
+}
+
+#[tauri::command]
+pub async fn get_skill_detail(skill_name: String, skill_path: Option<String>) -> Result<SkillDetail, String> {
+    // Use provided path if available, otherwise default to global
+    let skill_dir = if let Some(ref p) = skill_path {
+        std::path::PathBuf::from(p)
+    } else {
+        let home = dirs::home_dir().ok_or("Could not find home directory")?;
+        home.join(".claude").join("skills").join(&skill_name)
+    };
+
+    if !skill_dir.exists() || !skill_dir.is_dir() {
+        return Err(format!("Skill directory not found: {}", skill_dir.display()));
+    }
+
+    let skill_md_path = skill_dir.join("SKILL.md");
+    let skill_md_content = std::fs::read_to_string(&skill_md_path).unwrap_or_default();
+
+    // Parse description from SKILL.md frontmatter
+    let description = parse_frontmatter_description(&skill_md_content);
+
+    // Check for .skillvault-meta.json
+    let meta_path = skill_dir.join(".skillvault-meta.json");
+    let (source, package_id, installed_version) = if meta_path.exists() {
+        match std::fs::read_to_string(&meta_path) {
+            Ok(content) => match serde_json::from_str::<SkillvaultMeta>(&content) {
+                Ok(meta) => ("skillvault".to_string(), Some(meta.package_id), Some(meta.version)),
+                Err(_) => ("local".to_string(), None, None),
+            },
+            Err(_) => ("local".to_string(), None, None),
+        }
+    } else {
+        ("local".to_string(), None, None)
+    };
+
+    // List files in the skill directory
+    let mut files = Vec::new();
+    collect_files(&skill_dir, &mut files)?;
+
+    Ok(SkillDetail {
+        name: skill_name,
+        path: skill_dir.to_string_lossy().to_string(),
+        description,
+        skill_md_content,
+        files,
+        source,
+        package_id,
+        installed_version,
+    })
+}
+
+fn parse_frontmatter_description(content: &str) -> String {
+    if !content.starts_with("---") {
+        return content
+            .lines()
+            .find(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .unwrap_or("")
+            .trim()
+            .to_string();
+    }
+
+    let after_first = &content[3..];
+    if let Some(end) = after_first.find("---") {
+        let frontmatter = &after_first[..end];
+        let lines: Vec<&str> = frontmatter.lines().collect();
+
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("description:") {
+                let val = trimmed["description:".len()..].trim();
+
+                if val == ">-" || val == "|-" || val == ">" || val == "|" {
+                    let mut parts = Vec::new();
+                    for next_line in &lines[i + 1..] {
+                        if next_line.starts_with(' ') || next_line.starts_with('\t') {
+                            parts.push(next_line.trim());
+                        } else {
+                            break;
+                        }
+                    }
+                    let sep = if val.starts_with('>') { " " } else { "\n" };
+                    return parts.join(sep);
+                }
+
+                let val = val.trim_matches('"').trim_matches('\'');
+                return val.to_string();
+            }
+        }
+    }
+
+    String::new()
+}
+
+fn collect_files(dir: &std::path::Path, files: &mut Vec<SkillFile>) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory: {}", e))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip hidden files
+        if name.starts_with('.') {
+            continue;
+        }
+
+        let metadata = entry.metadata().map_err(|e| format!("Failed to read metadata: {}", e))?;
+        let is_dir = metadata.is_dir();
+        let size = if is_dir { 0 } else { metadata.len() };
+
+        files.push(SkillFile {
+            name,
+            path: path.to_string_lossy().to_string(),
+            size,
+            is_dir,
+        });
+    }
+
+    files.sort_by(|a, b| {
+        // Directories first, then by name
+        b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name))
+    });
+
+    Ok(())
+}
+
+/// Read the content of a file (for agent/plugin detail views)
+#[tauri::command]
+pub async fn read_file_content(file_path: String) -> Result<String, String> {
+    let path = std::path::Path::new(&file_path);
+
+    // Security: only allow reading known safe files
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let claude_dir = home.join(".claude");
+    let filename = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+    let codex_dir = home.join(".codex");
+    let is_claude_dir = path.starts_with(&claude_dir);
+    let is_codex_dir = path.starts_with(&codex_dir);
+    let is_codex_project = path.to_string_lossy().contains("/.codex/");
+    let is_claude_md = filename == "CLAUDE.md" || filename == "AGENTS.md";
+    let is_under_home = path.starts_with(&home);
+
+    if !(is_claude_dir || is_codex_dir || is_codex_project || (is_claude_md && is_under_home)) {
+        return Err("Can only read files within ~/.claude/, ~/.codex/, project .codex/ directories, or CLAUDE.md/AGENTS.md in your projects".to_string());
+    }
+
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+
+    std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read file: {}", e))
+}
+
+#[tauri::command]
+pub async fn package_skill(skill_name: String) -> Result<PackagedSkill, String> {
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let skill_dir = home.join(".claude").join("skills").join(&skill_name);
+
+    if !skill_dir.exists() || !skill_dir.is_dir() {
+        return Err(format!("Skill directory not found: {}", skill_dir.display()));
+    }
+
+    // Parse description from SKILL.md
+    let skill_md_path = skill_dir.join("SKILL.md");
+    let skill_md_content = std::fs::read_to_string(&skill_md_path).unwrap_or_default();
+    let description = parse_frontmatter_description(&skill_md_content);
+
+    // Create zip in memory
+    let mut buf = Cursor::new(Vec::new());
+    let mut zip_writer = zip::ZipWriter::new(&mut buf);
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let mut file_count: u32 = 0;
+    add_dir_to_zip(&mut zip_writer, &skill_dir, &skill_dir, &options, &mut file_count)?;
+    zip_writer.finish().map_err(|e| format!("Failed to finalize zip: {}", e))?;
+
+    let zip_bytes = buf.into_inner();
+    let size_bytes = zip_bytes.len() as u64;
+    let zip_base64 = base64::engine::general_purpose::STANDARD.encode(&zip_bytes);
+
+    Ok(PackagedSkill {
+        name: skill_name,
+        description,
+        zip_base64,
+        file_count,
+        size_bytes,
+    })
+}
+
+fn add_dir_to_zip(
+    zip: &mut zip::ZipWriter<&mut Cursor<Vec<u8>>>,
+    base: &std::path::Path,
+    dir: &std::path::Path,
+    options: &SimpleFileOptions,
+    file_count: &mut u32,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory {}: {}", dir.display(), e))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip hidden files (like .skillvault-meta.json)
+        if name.starts_with('.') {
+            continue;
+        }
+
+        let relative = path
+            .strip_prefix(base)
+            .map_err(|e| format!("Path error: {}", e))?
+            .to_string_lossy()
+            .to_string();
+
+        if path.is_dir() {
+            zip.add_directory(&format!("{}/", relative), *options)
+                .map_err(|e| format!("Failed to add directory to zip: {}", e))?;
+            add_dir_to_zip(zip, base, &path, options, file_count)?;
+        } else {
+            let data = std::fs::read(&path)
+                .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+            zip.start_file(&relative, *options)
+                .map_err(|e| format!("Failed to start zip entry: {}", e))?;
+            zip.write_all(&data)
+                .map_err(|e| format!("Failed to write zip entry: {}", e))?;
+            *file_count += 1;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn publish_skill(
+    skill_name: String,
+    display_name: String,
+    tagline: String,
+    category: String,
+    version: String,
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) -> Result<String, String> {
+    // 1. Get auth token from state
+    let token = {
+        let app = state.lock().await;
+        app.auth_token.clone()
+    };
+
+    let token = token.ok_or("Not authenticated — add your API token in Settings first")?;
+
+    // 2. Package the skill (create zip)
+    let packaged = package_skill(skill_name.clone()).await?;
+    let zip_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&packaged.zip_base64)
+        .map_err(|e| format!("Failed to decode zip: {}", e))?;
+
+    // 3. Create package metadata via API
+    let client = ApiClient::new(Some(token.clone()));
+    client
+        .create_package(&skill_name, &display_name, &tagline, &category)
+        .await?;
+
+    // 4. Upload the zip with version
+    // We use "me" as author since the API resolves the author from the token
+    client
+        .upload_version("me", &skill_name, &version, zip_bytes)
+        .await?;
+
+    Ok(format!(
+        "Published {} v{} to skillvault.md",
+        display_name, version
+    ))
+}
+
+#[derive(serde::Serialize)]
+pub struct UpdateInfo {
+    pub skill_name: String,
+    pub package_id: String,
+    pub installed_version: String,
+    pub latest_version: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct AuthStatus {
+    pub authenticated: bool,
+}
+
+// --- Marketplace plugin JSON structures for deserialization ---
+
+#[derive(Deserialize)]
+struct MarketplaceJson {
+    #[serde(default)]
+    plugins: Vec<MarketplacePluginEntry>,
+}
+
+#[derive(Deserialize)]
+struct MarketplacePluginEntry {
+    name: String,
+    #[serde(default)]
+    description: String,
+    category: Option<String>,
+    author: Option<MarketplaceAuthor>,
+    homepage: Option<String>,
+    #[serde(default)]
+    keywords: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct MarketplaceAuthor {
+    name: Option<String>,
+    url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct InstalledPluginsJson {
+    #[serde(default)]
+    plugins: std::collections::HashMap<String, Vec<InstalledPluginEntry>>,
+}
+
+#[derive(Deserialize)]
+struct InstalledPluginEntry {
+    #[serde(default)]
+    scope: String,
+    #[serde(rename = "installPath")]
+    install_path: Option<String>,
+    version: Option<String>,
+    #[serde(rename = "installedAt")]
+    installed_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct BlocklistJson {
+    #[serde(default)]
+    plugins: Vec<String>,
+}
+
+fn read_marketplace_json() -> Result<MarketplaceJson, String> {
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let path = home
+        .join(".claude/plugins/marketplaces/claude-plugins-official/.claude-plugin/marketplace.json");
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read marketplace.json: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse marketplace.json: {}", e))
+}
+
+fn read_installed_plugins() -> InstalledPluginsJson {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return InstalledPluginsJson { plugins: std::collections::HashMap::new() },
+    };
+    let path = home.join(".claude/plugins/installed_plugins.json");
+    match std::fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or(InstalledPluginsJson {
+            plugins: std::collections::HashMap::new(),
+        }),
+        Err(_) => InstalledPluginsJson { plugins: std::collections::HashMap::new() },
+    }
+}
+
+fn read_blocklist() -> Vec<String> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+    let path = home.join(".claude/plugins/blocklist.json");
+    match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            // Try parsing as structured JSON first, fall back to plain array
+            if let Ok(bl) = serde_json::from_str::<BlocklistJson>(&content) {
+                bl.plugins
+            } else if let Ok(arr) = serde_json::from_str::<Vec<String>>(&content) {
+                arr
+            } else {
+                Vec::new()
+            }
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tauri::command]
+pub async fn get_marketplace_plugins() -> Result<Vec<MarketplacePlugin>, String> {
+    let marketplace = read_marketplace_json()?;
+    let installed = read_installed_plugins();
+    let blocklist = read_blocklist();
+
+    let marketplace_name = "claude-plugins-official";
+
+    let mut results: Vec<MarketplacePlugin> = marketplace
+        .plugins
+        .into_iter()
+        .filter(|p| !blocklist.contains(&p.name))
+        .map(|p| {
+            let key = format!("{}@{}", p.name, marketplace_name);
+            let install_info = installed.plugins.get(&key).and_then(|entries| entries.first());
+
+            MarketplacePlugin {
+                name: p.name,
+                description: p.description,
+                category: p.category,
+                author_name: p.author.as_ref().and_then(|a| a.name.clone()),
+                author_url: p.author.as_ref().and_then(|a| a.url.clone()),
+                homepage: p.homepage,
+                keywords: p.keywords,
+                is_installed: install_info.is_some(),
+                installed_version: install_info.and_then(|i| i.version.clone()),
+                installed_at: install_info.and_then(|i| i.installed_at.clone()),
+            }
+        })
+        .collect();
+
+    results.sort_by(|a, b| {
+        let cat_a = a.category.as_deref().unwrap_or("");
+        let cat_b = b.category.as_deref().unwrap_or("");
+        cat_a.cmp(cat_b).then(a.name.cmp(&b.name))
+    });
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn get_plugin_detail(plugin_name: String) -> Result<PluginDetail, String> {
+    let marketplace = read_marketplace_json()?;
+    let installed = read_installed_plugins();
+
+    let entry = marketplace
+        .plugins
+        .into_iter()
+        .find(|p| p.name == plugin_name)
+        .ok_or_else(|| format!("Plugin '{}' not found in marketplace", plugin_name))?;
+
+    let marketplace_name = "claude-plugins-official";
+    let key = format!("{}@{}", entry.name, marketplace_name);
+    let install_info = installed.plugins.get(&key).and_then(|entries| entries.first());
+
+    // Try to find README.md in known locations
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let base = home.join(".claude/plugins/marketplaces/claude-plugins-official");
+    let readme_candidates = [
+        base.join("plugins").join(&plugin_name).join("README.md"),
+        base.join("external_plugins").join(&plugin_name).join("README.md"),
+    ];
+    let readme = readme_candidates
+        .iter()
+        .find_map(|p| std::fs::read_to_string(p).ok());
+
+    Ok(PluginDetail {
+        name: entry.name,
+        description: entry.description,
+        category: entry.category,
+        author_name: entry.author.as_ref().and_then(|a| a.name.clone()),
+        author_url: entry.author.as_ref().and_then(|a| a.url.clone()),
+        homepage: entry.homepage,
+        keywords: entry.keywords,
+        is_installed: install_info.is_some(),
+        installed_version: install_info.and_then(|i| i.version.clone()),
+        installed_at: install_info.and_then(|i| i.installed_at.clone()),
+        install_path: install_info.and_then(|i| i.install_path.clone()),
+        readme,
+    })
+}

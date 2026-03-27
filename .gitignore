@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+src-tauri/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp icon source files
+app-icon.png
+app-icon.svg
+/tmp/
+
+# Environment
+.env
+.env.*
+
+# Tauri generated (keep icons but ignore schemas)
+src-tauri/gen/schemas/
