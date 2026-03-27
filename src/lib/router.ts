@@ -64,15 +64,65 @@ function updateSidebarActive() {
 
 // Keyboard shortcuts for navigation
 document.addEventListener('keydown', (e) => {
-  // Cmd+[ or Cmd+Left = Back
+  // Don't trigger shortcuts when typing in inputs
+  const tag = (e.target as HTMLElement).tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+  // Cmd+[ or Alt+Cmd+Left = Back
   if (e.metaKey && (e.key === '[' || (e.key === 'ArrowLeft' && e.altKey))) {
     e.preventDefault();
     goBack();
   }
-  // Cmd+] or Cmd+Right = Forward
+  // Cmd+] or Alt+Cmd+Right = Forward
   if (e.metaKey && (e.key === ']' || (e.key === 'ArrowRight' && e.altKey))) {
     e.preventDefault();
     goForward();
+  }
+
+  // View shortcuts (numbers 1-9)
+  if (e.metaKey && !e.shiftKey && !e.altKey) {
+    switch (e.key) {
+      case '1': e.preventDefault(); navigate('installed'); break;
+      case '2': e.preventDefault(); navigate('publish'); break;
+      case '3': e.preventDefault(); navigate('browse'); break;
+      case '4': e.preventDefault(); navigate('recent'); break;
+      case '5': e.preventDefault(); navigate('trending'); break;
+      case '6': e.preventDefault(); navigate('plugins'); break;
+      case '7': e.preventDefault(); navigate('settings'); break;
+    }
+  }
+
+  // Cmd+, = Settings (standard macOS)
+  if (e.metaKey && e.key === ',') {
+    e.preventDefault();
+    navigate('settings');
+  }
+
+  // Cmd+F = Focus search (if on Browse or Plugins view)
+  if (e.metaKey && e.key === 'f') {
+    const searchInput = document.querySelector('#search-input, #plugin-search') as HTMLInputElement;
+    if (searchInput) {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
+  }
+
+  // Cmd+R = Refresh/Scan
+  if (e.metaKey && e.key === 'r') {
+    e.preventDefault();
+    const scanBtn = document.querySelector('#scan-btn') as HTMLButtonElement;
+    if (scanBtn) {
+      scanBtn.click();
+    } else {
+      // Re-render current view
+      renderCurrentView();
+    }
+  }
+
+  // Escape = Go back (when not in an input)
+  if (e.key === 'Escape') {
+    goBack();
   }
 });
 

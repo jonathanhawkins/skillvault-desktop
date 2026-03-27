@@ -59,15 +59,34 @@ export async function renderSettings() {
 
     <div class="settings-section">
       <h2 class="h2" style="margin-bottom:16px">Keyboard Shortcuts</h2>
-      <div style="display:grid;grid-template-columns:1fr auto;gap:8px 24px;font-size:13px;max-width:400px">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:6px 32px;font-size:13px;max-width:440px">
+        <div style="color:var(--text-faint);font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.5px;grid-column:1/-1;margin:4px 0 2px">NAVIGATION</div>
         <span style="color:var(--text-secondary)">Go back</span>
         <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; [</span>
         <span style="color:var(--text-secondary)">Go forward</span>
         <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; ]</span>
-        <span style="color:var(--text-secondary)">Go back (alt)</span>
-        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8997;&#8984; &#8592;</span>
-        <span style="color:var(--text-secondary)">Go forward (alt)</span>
-        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8997;&#8984; &#8594;</span>
+        <span style="color:var(--text-secondary)">Escape / go back</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">Esc</span>
+        <div style="color:var(--text-faint);font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.5px;grid-column:1/-1;margin:8px 0 2px">VIEWS</div>
+        <span style="color:var(--text-secondary)">My Skills</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; 1</span>
+        <span style="color:var(--text-secondary)">Publish</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; 2</span>
+        <span style="color:var(--text-secondary)">Browse</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; 3</span>
+        <span style="color:var(--text-secondary)">New</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; 4</span>
+        <span style="color:var(--text-secondary)">Trending</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; 5</span>
+        <span style="color:var(--text-secondary)">Plugins</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; 6</span>
+        <span style="color:var(--text-secondary)">Settings</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; 7 &nbsp;or&nbsp; &#8984; ,</span>
+        <div style="color:var(--text-faint);font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.5px;grid-column:1/-1;margin:8px 0 2px">ACTIONS</div>
+        <span style="color:var(--text-secondary)">Search / focus search bar</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; F</span>
+        <span style="color:var(--text-secondary)">Refresh / Scan</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; R</span>
       </div>
     </div>
 
