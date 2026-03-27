@@ -1,4 +1,4 @@
-import { setState } from '../lib/state';
+import { getState, setState } from '../lib/state';
 import { getMarketplacePlugins } from '../lib/api';
 import { navigate } from '../lib/router';
 import type { MarketplacePlugin } from '../lib/types';
@@ -38,7 +38,8 @@ export async function renderPlugins() {
   // Extract unique categories
   const categories = Array.from(new Set(plugins.map(p => p.category).filter(Boolean) as string[])).sort();
 
-  renderPluginList(content, plugins, categories, '', 'all', 'all');
+  const s = getState();
+  renderPluginList(content, plugins, categories, '', s.pluginCategoryFilter, s.pluginSourceFilter);
 }
 
 function renderPluginList(
@@ -141,12 +142,16 @@ function renderPluginList(
   const statusSelect = content.querySelector('#plugin-status-filter') as HTMLSelectElement;
 
   const refilter = () => {
+    const source = sourceSelect?.value || 'all';
+    const category = categorySelect?.value || 'all';
+    const status = statusSelect?.value || 'all';
+    // Persist filter selections
+    setState({ pluginSourceFilter: source, pluginCategoryFilter: category, pluginStatusFilter: status } as any);
     // Apply status filter before passing to renderPluginList
     let filtered = allPlugins;
-    const status = statusSelect?.value;
     if (status === 'installed') filtered = filtered.filter(p => p.is_installed);
     if (status === 'available') filtered = filtered.filter(p => !p.is_installed);
-    renderPluginList(content, filtered, categories, searchInput.value, categorySelect.value, sourceSelect?.value || 'all');
+    renderPluginList(content, filtered, categories, searchInput.value, category, source);
   };
 
   searchInput?.addEventListener('input', refilter);

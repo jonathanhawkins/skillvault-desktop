@@ -306,9 +306,9 @@ export async function renderInstalled() {
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <select class="search-select" id="platform-filter" style="height:36px;font-size:10px">
-          <option value="all">All Platforms</option>
-          <option value="claude">Claude Code</option>
-          <option value="codex">Codex</option>
+          <option value="all"${state.installedPlatformFilter === 'all' ? ' selected' : ''}>All Platforms</option>
+          <option value="claude"${state.installedPlatformFilter === 'claude' ? ' selected' : ''}>Claude Code</option>
+          <option value="codex"${state.installedPlatformFilter === 'codex' ? ' selected' : ''}>Codex</option>
         </select>
         <button class="btn btn--sm" id="scan-btn">Scan</button>
       </div>
@@ -349,14 +349,19 @@ export async function renderInstalled() {
     navigate('browse');
   });
 
-  // Platform filter
+  // Platform filter — persisted in state
   const platformFilter = content.querySelector('#platform-filter') as HTMLSelectElement;
-  platformFilter?.addEventListener('change', () => {
-    const val = platformFilter.value;
+  const applyPlatformFilter = (val: string) => {
     const claudeSections = content.querySelector('#claude-sections') as HTMLElement;
     const codexSections = content.querySelector('#codex-sections') as HTMLElement;
     if (claudeSections) claudeSections.style.display = (val === 'codex') ? 'none' : '';
     if (codexSections) codexSections.style.display = (val === 'claude') ? 'none' : '';
+  };
+  // Apply saved filter on load
+  applyPlatformFilter(state.installedPlatformFilter);
+  platformFilter?.addEventListener('change', () => {
+    setState({ installedPlatformFilter: platformFilter.value });
+    applyPlatformFilter(platformFilter.value);
   });
 
   // Click skill card to navigate to detail

@@ -20,6 +20,10 @@ interface AppState {
   selectedFileTitle: string;
   selectedPluginName: string;
   selectedPluginSource: string;
+  installedPlatformFilter: string;
+  pluginSourceFilter: string;
+  pluginCategoryFilter: string;
+  pluginStatusFilter: string;
   loading: boolean;
   authenticated: boolean;
 }
@@ -42,6 +46,10 @@ const state: AppState = {
   selectedFileTitle: '',
   selectedPluginName: '',
   selectedPluginSource: 'claude',
+  installedPlatformFilter: 'all',
+  pluginSourceFilter: 'all',
+  pluginCategoryFilter: 'all',
+  pluginStatusFilter: 'all',
   loading: false,
   authenticated: false,
 };
