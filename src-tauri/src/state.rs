@@ -340,4 +340,5 @@ pub struct PackagedSkill {
     pub zip_base64: String,
     pub file_count: u32,
     pub size_bytes: u64,
+    pub skill_names: Vec<String>,
 }

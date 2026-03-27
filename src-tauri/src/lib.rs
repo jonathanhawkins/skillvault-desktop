@@ -83,6 +83,8 @@ pub fn run() {
             commands::get_plugin_detail,
             commands::package_skill,
             commands::publish_skill,
+            commands::package_skills,
+            commands::publish_skills,
             commands::install_plugin,
             commands::uninstall_plugin,
         ])

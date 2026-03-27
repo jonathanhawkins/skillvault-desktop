@@ -46,23 +46,84 @@ pub async fn install(
 
     extract_zip(&zip_bytes, &target_dir)?;
 
-    // Write meta file
-    let meta = SkillvaultMeta {
-        source: "skillvault".to_string(),
-        package_id: format!("{}/{}", author, name),
-        version: pkg.current_version.clone(),
-        installed_at: simple_iso_now(),
-        auto_update: true,
-    };
+    // Check if this is a multi-skill package: look for subdirectories containing SKILL.md
+    let mut sub_skills: Vec<String> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&target_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join("SKILL.md").exists() {
+                if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+                    sub_skills.push(dir_name.to_string());
+                }
+            }
+        }
+    }
 
-    let meta_json = serde_json::to_string_pretty(&meta)
-        .map_err(|e| format!("Failed to serialize meta: {}", e))?;
+    if !sub_skills.is_empty() {
+        // Multi-skill package: move each skill subdirectory to its own skills dir
+        let mut installed_names = Vec::new();
+        for sub_name in &sub_skills {
+            let sub_src = target_dir.join(sub_name);
+            let sub_dest = skills_dir.join(sub_name);
 
-    fs::write(target_dir.join(".skillvault-meta.json"), meta_json)
-        .map_err(|e| format!("Failed to write meta file: {}", e))?;
+            // Handle conflicts for sub-skill
+            if sub_dest.exists() {
+                let trash_dir = skills_dir.join(".trash");
+                fs::create_dir_all(&trash_dir)
+                    .map_err(|e| format!("Failed to create .trash dir: {}", e))?;
+                let timestamp = chrono_simple_timestamp();
+                let backup_name = format!("{}-{}", sub_name, timestamp);
+                fs::rename(&sub_dest, trash_dir.join(&backup_name))
+                    .map_err(|e| format!("Failed to backup existing skill '{}': {}", sub_name, e))?;
+            }
 
-    let display_path = target_dir.display();
-    Ok(format!("Installed {}/{} v{} to {}", author, name, pkg.current_version, display_path))
+            fs::rename(&sub_src, &sub_dest)
+                .map_err(|e| format!("Failed to move skill '{}': {}", sub_name, e))?;
+
+            // Write .skillvault-meta.json in each individual skill directory
+            let meta = SkillvaultMeta {
+                source: "skillvault".to_string(),
+                package_id: format!("{}/{}", author, name),
+                version: pkg.current_version.clone(),
+                installed_at: simple_iso_now(),
+                auto_update: true,
+            };
+            let meta_json = serde_json::to_string_pretty(&meta)
+                .map_err(|e| format!("Failed to serialize meta: {}", e))?;
+            fs::write(sub_dest.join(".skillvault-meta.json"), meta_json)
+                .map_err(|e| format!("Failed to write meta file for '{}': {}", sub_name, e))?;
+
+            installed_names.push(sub_name.clone());
+        }
+
+        // Remove the original container directory
+        let _ = fs::remove_dir_all(&target_dir);
+
+        Ok(format!(
+            "Installed {}/{} v{} — {} skills: {}",
+            author, name, pkg.current_version,
+            installed_names.len(),
+            installed_names.join(", ")
+        ))
+    } else {
+        // Single skill — existing behavior
+        let meta = SkillvaultMeta {
+            source: "skillvault".to_string(),
+            package_id: format!("{}/{}", author, name),
+            version: pkg.current_version.clone(),
+            installed_at: simple_iso_now(),
+            auto_update: true,
+        };
+
+        let meta_json = serde_json::to_string_pretty(&meta)
+            .map_err(|e| format!("Failed to serialize meta: {}", e))?;
+
+        fs::write(target_dir.join(".skillvault-meta.json"), meta_json)
+            .map_err(|e| format!("Failed to write meta file: {}", e))?;
+
+        let display_path = target_dir.display();
+        Ok(format!("Installed {}/{} v{} to {}", author, name, pkg.current_version, display_path))
+    }
 }
 
 /// Uninstall a skill (soft delete to .trash/)

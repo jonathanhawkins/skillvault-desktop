@@ -227,6 +227,81 @@
   box-shadow: 0 0 0 1px var(--accent);
 }
 
+.publish-checkbox {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.publish-checkbox--checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.publish-select-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.publish-select-count {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.publish-group-header {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.66px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 20px 0 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.publish-group-header:first-of-type {
+  margin-top: 0;
+}
+
+.publish-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: 'Geist Mono', monospace;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+}
+
+.publish-chip button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+}
+
+.publish-chip button:hover {
+  color: var(--text-primary);
+}
+
 .publish-field {
   margin-bottom: 16px;
 }

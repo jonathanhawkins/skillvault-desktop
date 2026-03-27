@@ -215,6 +215,7 @@ export interface PackagedSkill {
   zip_base64: string;
   file_count: number;
   size_bytes: number;
+  skill_names: string[];
 }
 
 export type ViewName = 'installed' | 'browse' | 'recent' | 'trending' | 'detail' | 'skill-detail' | 'file-detail' | 'settings' | 'plugins' | 'plugin-detail' | 'publish';

@@ -1,5 +1,5 @@
 import { getState, setState } from '../lib/state';
-import { scanLocal, packageSkill, publishSkill, getAuthStatus } from '../lib/api';
+import { scanLocal, packageSkill, packageSkills, publishSkill, publishSkills, getAuthStatus } from '../lib/api';
 import { showToast } from '../components/toast';
 import { renderSidebar } from '../components/sidebar';
 import { navigate } from '../lib/router';
@@ -20,8 +20,9 @@ const CATEGORIES = [
 type PublishStep = 'select' | 'metadata' | 'publishing';
 
 let currentStep: PublishStep = 'select';
-let selectedSkill: LocalSkill | null = null;
+let selectedSkills: LocalSkill[] = [];
 let packaged: PackagedSkill | null = null;
+let packageName = '';
 
 export async function renderPublish() {
   const content = document.getElementById('content');
@@ -109,6 +110,29 @@ function renderAuthRequired(content: HTMLElement) {
   });
 }
 
+function isSkillSelected(skill: LocalSkill): boolean {
+  return selectedSkills.some((s) => s.name === skill.name && s.path === skill.path);
+}
+
+function toggleSkillSelection(skill: LocalSkill) {
+  const idx = selectedSkills.findIndex((s) => s.name === skill.name && s.path === skill.path);
+  if (idx >= 0) {
+    selectedSkills.splice(idx, 1);
+  } else {
+    selectedSkills.push(skill);
+  }
+}
+
+function groupSkillsByProject(skills: LocalSkill[]): Map<string, LocalSkill[]> {
+  const groups = new Map<string, LocalSkill[]>();
+  for (const skill of skills) {
+    const key = skill.project ?? '__global__';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(skill);
+  }
+  return groups;
+}
+
 function renderSelectStep(content: HTMLElement) {
   const state = getState();
   const ls = state.localState!;
@@ -139,6 +163,49 @@ function renderSelectStep(content: HTMLElement) {
     return;
   }
 
+  const grouped = groupSkillsByProject(localSkills);
+  const selCount = selectedSkills.length;
+
+  // Build grouped skill cards HTML
+  let groupedCardsHtml = '';
+  const sortedKeys = [...grouped.keys()].sort((a, b) => {
+    if (a === '__global__') return -1;
+    if (b === '__global__') return 1;
+    return a.localeCompare(b);
+  });
+
+  for (const key of sortedKeys) {
+    const skills = grouped.get(key)!;
+    const headerLabel = key === '__global__' ? 'Global Skills' : esc(key);
+    groupedCardsHtml += `<div class="publish-group-header">${headerLabel}</div>`;
+    groupedCardsHtml += `<div class="grid">`;
+    for (const skill of skills) {
+      const selected = isSkillSelected(skill);
+      groupedCardsHtml += `
+        <div class="skill-card skill-card--clickable publish-select-card${selected ? ' publish-select-card--selected' : ''}" data-skill="${esc(skill.name)}" data-path="${esc(skill.path)}">
+          <div style="display:flex;align-items:flex-start;gap:10px">
+            <div class="publish-checkbox${selected ? ' publish-checkbox--checked' : ''}">
+              ${selected ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+            </div>
+            <div style="flex:1;min-width:0">
+              <div class="skill-card-header">
+                <div class="skill-card-name">${esc(skill.name)}</div>
+                <span class="skill-card-source skill-card-source--local">local</span>
+              </div>
+              ${skill.description ? `<div class="skill-card-desc">${esc(skill.description)}</div>` : ''}
+              <div class="skill-card-meta">
+                <span>${skill.file_count} files</span>
+                ${skill.has_scripts ? '<span>scripts</span>' : ''}
+                ${skill.has_subagents ? '<span>subagents</span>' : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    groupedCardsHtml += `</div>`;
+  }
+
   content.innerHTML = `
     <div class="view-header">
       <div class="view-header-title">
@@ -147,60 +214,50 @@ function renderSelectStep(content: HTMLElement) {
     </div>
     ${stepsHtml}
     <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
-      Select a local skill to publish to skillvault.md
+      Select skills to publish to skillvault.md
     </p>
-    <div class="grid">
-      ${localSkills
-        .map(
-          (skill) => `
-        <div class="skill-card skill-card--clickable publish-select-card${selectedSkill?.name === skill.name ? ' publish-select-card--selected' : ''}" data-skill="${esc(skill.name)}">
-          <div class="skill-card-header">
-            <div class="skill-card-name">${esc(skill.name)}</div>
-            <span class="skill-card-source skill-card-source--local">local</span>
-          </div>
-          ${skill.description ? `<div class="skill-card-desc">${esc(skill.description)}</div>` : ''}
-          <div class="skill-card-meta">
-            <span>${skill.file_count} files</span>
-            ${skill.has_scripts ? '<span>scripts</span>' : ''}
-            ${skill.has_subagents ? '<span>subagents</span>' : ''}
-          </div>
-        </div>
-      `
-        )
-        .join('')}
+    <div class="publish-select-toolbar">
+      <span class="publish-select-count">${selCount} skill${selCount !== 1 ? 's' : ''} selected</span>
+      <button class="btn btn--sm" id="select-all-btn">Select All</button>
+      <button class="btn btn--sm" id="clear-btn"${selCount === 0 ? ' disabled' : ''}>Clear</button>
     </div>
+    ${groupedCardsHtml}
     <div style="display:flex;justify-content:flex-end;margin-top:24px">
-      <button class="btn btn--primary" id="next-btn"${!selectedSkill ? ' disabled' : ''}>Next</button>
+      <button class="btn btn--primary" id="next-btn"${selCount < 1 ? ' disabled' : ''}>Next</button>
     </div>
   `;
 
-  // Bind card selection
+  // Bind card selection (toggle)
   content.querySelectorAll('.publish-select-card').forEach((card) => {
     card.addEventListener('click', () => {
       const name = (card as HTMLElement).dataset.skill;
-      if (!name) return;
-      const skill = localSkills.find((s) => s.name === name);
+      const path = (card as HTMLElement).dataset.path;
+      if (!name || !path) return;
+      const skill = localSkills.find((s) => s.name === name && s.path === path);
       if (!skill) return;
 
-      selectedSkill = skill;
-
-      // Update selected state visually
-      content.querySelectorAll('.publish-select-card').forEach((c) => {
-        c.classList.remove('publish-select-card--selected');
-      });
-      card.classList.add('publish-select-card--selected');
-
-      // Enable Next button
-      const nextBtn = content.querySelector('#next-btn') as HTMLButtonElement;
-      if (nextBtn) nextBtn.disabled = false;
+      toggleSkillSelection(skill);
+      // Re-render to update all visual state
+      renderSelectStep(content);
     });
+  });
+
+  // Select All
+  content.querySelector('#select-all-btn')?.addEventListener('click', () => {
+    selectedSkills = [...localSkills];
+    renderSelectStep(content);
+  });
+
+  // Clear
+  content.querySelector('#clear-btn')?.addEventListener('click', () => {
+    selectedSkills = [];
+    renderSelectStep(content);
   });
 
   // Next button
   content.querySelector('#next-btn')?.addEventListener('click', async () => {
-    if (!selectedSkill) return;
+    if (selectedSkills.length < 1) return;
 
-    // Package the skill to get metadata preview
     const nextBtn = content.querySelector('#next-btn') as HTMLButtonElement;
     if (nextBtn) {
       nextBtn.disabled = true;
@@ -208,11 +265,19 @@ function renderSelectStep(content: HTMLElement) {
     }
 
     try {
-      packaged = await packageSkill(selectedSkill.name);
+      if (selectedSkills.length === 1) {
+        packaged = await packageSkill(selectedSkills[0].name);
+      } else {
+        packaged = await packageSkills(selectedSkills.map((s) => s.name), selectedSkills.map((s) => s.path));
+      }
+      // Generate default package name
+      packageName = selectedSkills.length === 1
+        ? selectedSkills[0].name
+        : selectedSkills[0].name + '-bundle';
       currentStep = 'metadata';
       renderPublish();
     } catch (e: any) {
-      showToast(`Failed to package skill: ${e}`, 'error');
+      showToast(`Failed to package skill${selectedSkills.length > 1 ? 's' : ''}: ${e}`, 'error');
       if (nextBtn) {
         nextBtn.disabled = false;
         nextBtn.textContent = 'Next';
@@ -222,23 +287,76 @@ function renderSelectStep(content: HTMLElement) {
 }
 
 function renderMetadataStep(content: HTMLElement) {
-  if (!selectedSkill || !packaged) {
+  if (selectedSkills.length === 0 || !packaged) {
     currentStep = 'select';
     renderPublish();
     return;
   }
 
   const stepsHtml = renderSteps('metadata');
+  const isBundle = selectedSkills.length > 1;
 
-  // Derive default display name from skill name (kebab-case to Title Case)
-  const defaultDisplayName = selectedSkill.name
+  // Derive default display name from package name (kebab-case to Title Case)
+  const defaultDisplayName = packageName
     .split(/[-_]/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
 
   const defaultTagline = packaged.description || '';
-
   const sizeStr = formatBytes(packaged.size_bytes);
+  const totalFiles = selectedSkills.reduce((sum, s) => sum + s.file_count, 0);
+
+  // Package name validation pattern
+  const pkgNamePattern = 'a-z0-9-';
+
+  // Chips for multi-select
+  const chipsHtml = isBundle
+    ? `
+      <div class="publish-field">
+        <label class="settings-label">Included Skills</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px" id="skill-chips">
+          ${selectedSkills
+            .map(
+              (s) =>
+                `<span class="publish-chip" data-chip-name="${esc(s.name)}" data-chip-path="${esc(s.path)}">${esc(s.name)} <button type="button" aria-label="Remove ${esc(s.name)}">&#215;</button></span>`
+            )
+            .join('')}
+        </div>
+        <div style="font-size:12px;color:var(--text-faint);margin-top:8px">${selectedSkills.length} skills, ${totalFiles} files</div>
+      </div>
+    `
+    : '';
+
+  const summaryHtml = isBundle
+    ? `
+      <div style="margin-bottom:24px;padding:16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+          <span style="font-weight:600;font-size:14px;color:var(--text-primary)">Bundle: ${esc(packageName)}</span>
+          <span style="font-size:12px;color:var(--text-muted)">${selectedSkills.length} skills</span>
+          <span style="font-size:12px;color:var(--text-muted)">${totalFiles} files</span>
+          <span style="font-size:12px;color:var(--text-muted)">${sizeStr}</span>
+        </div>
+      </div>
+    `
+    : `
+      <div style="margin-bottom:24px;padding:16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <span style="font-weight:600;font-size:14px;color:var(--text-primary)">${esc(selectedSkills[0].name)}</span>
+          <span style="font-size:12px;color:var(--text-muted)">${packaged.file_count} files</span>
+          <span style="font-size:12px;color:var(--text-muted)">${sizeStr}</span>
+        </div>
+      </div>
+    `;
+
+  const packageNameFieldHtml = isBundle
+    ? `
+      <div class="publish-field">
+        <label class="settings-label" for="pub-package-name">Package Name</label>
+        <input class="settings-input" id="pub-package-name" type="text" value="${esc(packageName)}" placeholder="my-skill-bundle" pattern="[${pkgNamePattern}]+">
+        <div class="settings-hint">Lowercase, alphanumeric and hyphens only</div>
+      </div>
+    `
+    : '';
 
   content.innerHTML = `
     <div class="view-header">
@@ -248,13 +366,9 @@ function renderMetadataStep(content: HTMLElement) {
     </div>
     ${stepsHtml}
     <div style="max-width:560px">
-      <div style="margin-bottom:24px;padding:16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-          <span style="font-weight:600;font-size:14px;color:var(--text-primary)">${esc(selectedSkill.name)}</span>
-          <span style="font-size:12px;color:var(--text-muted)">${packaged.file_count} files</span>
-          <span style="font-size:12px;color:var(--text-muted)">${sizeStr}</span>
-        </div>
-      </div>
+      ${summaryHtml}
+      ${packageNameFieldHtml}
+      ${chipsHtml}
 
       <div class="publish-form">
         <div class="publish-field">
@@ -287,6 +401,39 @@ function renderMetadataStep(content: HTMLElement) {
     </div>
   `;
 
+  // Chip removal handlers
+  if (isBundle) {
+    content.querySelectorAll('.publish-chip button').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const chip = (btn as HTMLElement).closest('.publish-chip') as HTMLElement;
+        if (!chip) return;
+        const chipName = chip.dataset.chipName;
+        const chipPath = chip.dataset.chipPath;
+        if (!chipName || !chipPath) return;
+        selectedSkills = selectedSkills.filter(
+          (s) => !(s.name === chipName && s.path === chipPath)
+        );
+        if (selectedSkills.length === 0) {
+          currentStep = 'select';
+          renderPublish();
+        } else {
+          // Re-render metadata with updated skills
+          renderMetadataStep(content);
+        }
+      });
+    });
+  }
+
+  // Package name live update
+  const pkgNameInput = content.querySelector('#pub-package-name') as HTMLInputElement | null;
+  if (pkgNameInput) {
+    pkgNameInput.addEventListener('input', () => {
+      packageName = pkgNameInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+      pkgNameInput.value = packageName;
+    });
+  }
+
   // Back button
   content.querySelector('#back-btn')?.addEventListener('click', () => {
     currentStep = 'select';
@@ -300,12 +447,23 @@ function renderMetadataStep(content: HTMLElement) {
     const category = (content.querySelector('#pub-category') as HTMLSelectElement).value;
     const version = (content.querySelector('#pub-version') as HTMLInputElement).value.trim();
 
+    // Update packageName from input if bundle
+    if (pkgNameInput) {
+      packageName = pkgNameInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+    } else {
+      packageName = selectedSkills[0].name;
+    }
+
     if (!displayName) {
       showToast('Display name is required', 'error');
       return;
     }
     if (!version || !/^\d+\.\d+\.\d+/.test(version)) {
       showToast('Version must be in semver format (e.g. 1.0.0)', 'error');
+      return;
+    }
+    if (isBundle && !packageName) {
+      showToast('Package name is required', 'error');
       return;
     }
 
@@ -321,13 +479,15 @@ async function renderPublishingStep(
   category?: string,
   version?: string
 ) {
-  if (!selectedSkill) {
+  if (selectedSkills.length === 0) {
     currentStep = 'select';
     renderPublish();
     return;
   }
 
   const stepsHtml = renderSteps('publishing');
+  const isBundle = selectedSkills.length > 1;
+  const publishLabel = isBundle ? `Publishing ${selectedSkills.length} skills...` : 'Packaging...';
 
   content.innerHTML = `
     <div class="view-header">
@@ -338,7 +498,7 @@ async function renderPublishingStep(
     ${stepsHtml}
     <div style="display:flex;flex-direction:column;align-items:center;padding:48px 0;gap:16px">
       <div class="spinner"></div>
-      <div id="publish-status" style="font-size:14px;color:var(--text-secondary)">Packaging...</div>
+      <div id="publish-status" style="font-size:14px;color:var(--text-secondary)">${publishLabel}</div>
     </div>
   `;
 
@@ -353,13 +513,26 @@ async function renderPublishingStep(
   try {
     if (statusEl) statusEl.textContent = 'Uploading to skillvault.md...';
 
-    const result = await publishSkill(
-      selectedSkill.name,
-      displayName,
-      tagline ?? '',
-      category,
-      version
-    );
+    let result: string;
+    if (isBundle) {
+      result = await publishSkills(
+        selectedSkills.map((s) => s.name),
+        selectedSkills.map((s) => s.path),
+        packageName,
+        displayName,
+        tagline ?? '',
+        category,
+        version
+      );
+    } else {
+      result = await publishSkill(
+        selectedSkills[0].name,
+        displayName,
+        tagline ?? '',
+        category,
+        version
+      );
+    }
 
     // Success state
     content.innerHTML = `
@@ -394,8 +567,9 @@ async function renderPublishingStep(
 
     content.querySelector('#done-btn')?.addEventListener('click', () => {
       currentStep = 'select';
-      selectedSkill = null;
+      selectedSkills = [];
       packaged = null;
+      packageName = '';
       navigate('installed');
     });
   } catch (e: any) {
@@ -434,7 +608,7 @@ async function renderPublishingStep(
 
 function renderSteps(active: PublishStep): string {
   const steps: { key: PublishStep; label: string }[] = [
-    { key: 'select', label: '1. Select Skill' },
+    { key: 'select', label: '1. Select Skills' },
     { key: 'metadata', label: '2. Metadata' },
     { key: 'publishing', label: '3. Publish' },
   ];

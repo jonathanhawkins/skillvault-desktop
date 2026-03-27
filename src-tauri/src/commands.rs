@@ -404,11 +404,12 @@ pub async fn package_skill(skill_name: String) -> Result<PackagedSkill, String> 
     let zip_base64 = base64::engine::general_purpose::STANDARD.encode(&zip_bytes);
 
     Ok(PackagedSkill {
-        name: skill_name,
+        name: skill_name.clone(),
         description,
         zip_base64,
         file_count,
         size_bytes,
+        skill_names: vec![skill_name],
     })
 }
 
@@ -488,6 +489,166 @@ pub async fn publish_skill(
     // We use "me" as author since the API resolves the author from the token
     client
         .upload_version("me", &skill_name, &version, zip_bytes)
+        .await?;
+
+    Ok(format!(
+        "Published {} v{} to skillvault.md",
+        display_name, version
+    ))
+}
+
+#[tauri::command]
+pub async fn package_skills(
+    skill_names: Vec<String>,
+    skill_paths: Vec<String>,
+) -> Result<PackagedSkill, String> {
+    if skill_names.is_empty() {
+        return Err("No skills specified".to_string());
+    }
+    if skill_names.len() != skill_paths.len() {
+        return Err("skill_names and skill_paths must have the same length".to_string());
+    }
+
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+
+    // Resolve each skill directory
+    let mut skill_dirs: Vec<(String, std::path::PathBuf)> = Vec::new();
+    for (i, name) in skill_names.iter().enumerate() {
+        let dir = if skill_paths[i].is_empty() {
+            home.join(".claude").join("skills").join(name)
+        } else {
+            std::path::PathBuf::from(&skill_paths[i])
+        };
+
+        if !dir.exists() || !dir.is_dir() {
+            return Err(format!("Skill directory not found: {}", dir.display()));
+        }
+        skill_dirs.push((name.clone(), dir));
+    }
+
+    // Build a combined description from the first skill
+    let first_skill_md = skill_dirs[0].1.join("SKILL.md");
+    let first_content = std::fs::read_to_string(&first_skill_md).unwrap_or_default();
+    let description = parse_frontmatter_description(&first_content);
+
+    // Create zip in memory with each skill as a top-level directory
+    let mut buf = Cursor::new(Vec::new());
+    let mut zip_writer = zip::ZipWriter::new(&mut buf);
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let mut total_file_count: u32 = 0;
+
+    for (name, dir) in &skill_dirs {
+        // Add the skill as a top-level directory in the zip
+        zip_writer
+            .add_directory(format!("{}/", name), options)
+            .map_err(|e| format!("Failed to add directory to zip: {}", e))?;
+
+        add_dir_to_zip_prefixed(&mut zip_writer, dir, dir, name, &options, &mut total_file_count)?;
+    }
+
+    zip_writer
+        .finish()
+        .map_err(|e| format!("Failed to finalize zip: {}", e))?;
+
+    let zip_bytes = buf.into_inner();
+    let size_bytes = zip_bytes.len() as u64;
+    let zip_base64 = base64::engine::general_purpose::STANDARD.encode(&zip_bytes);
+
+    let combined_name = skill_names.join("+");
+
+    Ok(PackagedSkill {
+        name: combined_name,
+        description,
+        zip_base64,
+        file_count: total_file_count,
+        size_bytes,
+        skill_names,
+    })
+}
+
+/// Like add_dir_to_zip but prefixes all entries with a top-level directory name.
+fn add_dir_to_zip_prefixed(
+    zip: &mut zip::ZipWriter<&mut Cursor<Vec<u8>>>,
+    base: &std::path::Path,
+    dir: &std::path::Path,
+    prefix: &str,
+    options: &SimpleFileOptions,
+    file_count: &mut u32,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory {}: {}", dir.display(), e))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip hidden files
+        if name.starts_with('.') {
+            continue;
+        }
+
+        let relative = path
+            .strip_prefix(base)
+            .map_err(|e| format!("Path error: {}", e))?
+            .to_string_lossy()
+            .to_string();
+
+        let prefixed = format!("{}/{}", prefix, relative);
+
+        if path.is_dir() {
+            zip.add_directory(&format!("{}/", prefixed), *options)
+                .map_err(|e| format!("Failed to add directory to zip: {}", e))?;
+            add_dir_to_zip_prefixed(zip, base, &path, prefix, options, file_count)?;
+        } else {
+            let data = std::fs::read(&path)
+                .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+            zip.start_file(&prefixed, *options)
+                .map_err(|e| format!("Failed to start zip entry: {}", e))?;
+            zip.write_all(&data)
+                .map_err(|e| format!("Failed to write zip entry: {}", e))?;
+            *file_count += 1;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn publish_skills(
+    skill_names: Vec<String>,
+    skill_paths: Vec<String>,
+    package_name: String,
+    display_name: String,
+    tagline: String,
+    category: String,
+    version: String,
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) -> Result<String, String> {
+    // 1. Get auth token from state
+    let token = {
+        let app = state.lock().await;
+        app.auth_token.clone()
+    };
+
+    let token = token.ok_or("Not authenticated — add your API token in Settings first")?;
+
+    // 2. Package the skills (create zip)
+    let packaged = package_skills(skill_names, skill_paths).await?;
+    let zip_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&packaged.zip_base64)
+        .map_err(|e| format!("Failed to decode zip: {}", e))?;
+
+    // 3. Create package metadata via API
+    let client = ApiClient::new(Some(token.clone()));
+    client
+        .create_package(&package_name, &display_name, &tagline, &category)
+        .await?;
+
+    // 4. Upload the zip with version
+    client
+        .upload_version("me", &package_name, &version, zip_bytes)
         .await?;
 
     Ok(format!(
