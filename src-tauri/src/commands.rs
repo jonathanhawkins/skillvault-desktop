@@ -709,20 +709,60 @@ pub async fn get_plugin_detail(
             .find(|p| p.name == plugin_name)
             .ok_or_else(|| format!("Codex plugin '{}' not found (try refreshing the plugin list)", plugin_name))?;
 
+        // Try to fetch README from GitHub
+        let readme_url = format!(
+            "https://raw.githubusercontent.com/openai/plugins/main/plugins/{}/README.md",
+            plugin_name
+        );
+        let readme = reqwest::get(&readme_url)
+            .await
+            .ok()
+            .and_then(|r| if r.status().is_success() { Some(r) } else { None });
+        let readme_text = match readme {
+            Some(r) => r.text().await.ok(),
+            None => None,
+        };
+
+        // Also try to fetch plugin.json for more metadata
+        let plugin_json_url = format!(
+            "https://raw.githubusercontent.com/openai/plugins/main/plugins/{}/.codex-plugin/plugin.json",
+            plugin_name
+        );
+        let plugin_json = reqwest::get(&plugin_json_url)
+            .await
+            .ok()
+            .and_then(|r| if r.status().is_success() { Some(r) } else { None });
+
+        let (description, homepage) = if let Some(resp) = plugin_json {
+            if let Ok(text) = resp.text().await {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                    let desc = json.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let hp = json.get("homepage").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    (desc.unwrap_or(entry.description), hp.or(entry.homepage))
+                } else {
+                    (entry.description, entry.homepage)
+                }
+            } else {
+                (entry.description, entry.homepage)
+            }
+        } else {
+            (entry.description, entry.homepage)
+        };
+
         return Ok(PluginDetail {
             name: entry.name,
-            description: entry.description,
+            description,
             category: entry.category,
             author_name: entry.author_name,
             author_url: entry.author_url,
-            homepage: entry.homepage,
+            homepage,
             keywords: entry.keywords,
             source: "codex".to_string(),
             is_installed: false,
             installed_version: None,
             installed_at: None,
             install_path: None,
-            readme: None,
+            readme: readme_text,
         });
     }
 
