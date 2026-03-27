@@ -92,6 +92,7 @@ function renderPluginList(
             </div>
             <div class="skill-card-desc">${esc(plugin.description)}</div>
             <div class="skill-card-meta">
+              <span style="color:var(--accent)">Claude Code</span>
               ${plugin.category ? `<span>${esc(plugin.category)}</span>` : ''}
               ${plugin.author_name ? `<span>${esc(plugin.author_name)}</span>` : ''}
             </div>

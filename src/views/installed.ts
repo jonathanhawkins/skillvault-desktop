@@ -300,6 +300,7 @@ export async function renderInstalled() {
       </div>
       <button class="btn btn--sm" id="scan-btn">Scan</button>
     </div>
+    <div style="margin-bottom:16px;font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-faint);letter-spacing:0.5px">CLAUDE CODE</div>
     <div class="installed-section">
       <div class="installed-section-header">
         <span class="installed-section-label">Global Skills</span>

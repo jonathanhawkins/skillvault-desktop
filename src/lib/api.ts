@@ -23,9 +23,10 @@ export async function searchPackages(
   category: string | null,
   sort: string | null,
   page: number,
-  limit: number
+  limit: number,
+  compat?: string | null
 ): Promise<PackageSearchResult> {
-  return invoke('search_packages', { query, category, sort, page, limit });
+  return invoke('search_packages', { query, category, sort, page, limit, compat: compat ?? null });
 }
 
 export async function getPackage(author: string, name: string): Promise<Package> {

@@ -24,6 +24,7 @@ impl ApiClient {
         sort: Option<&str>,
         page: u32,
         limit: u32,
+        compat: Option<&str>,
     ) -> Result<PackageSearchResult, String> {
         let mut url = format!(
             "{}/api/packages?q={}&page={}&limit={}",
@@ -38,6 +39,9 @@ impl ApiClient {
         }
         if let Some(s) = sort {
             url.push_str(&format!("&sort={}", urlencoded(s)));
+        }
+        if let Some(c) = compat {
+            url.push_str(&format!("&compat={}", urlencoded(c)));
         }
 
         let resp = self

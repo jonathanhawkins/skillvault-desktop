@@ -28,6 +28,14 @@ export async function renderBrowse() {
         <option value="downloads"${state.searchSort === 'downloads' ? ' selected' : ''}>Downloads</option>
         <option value="stars"${state.searchSort === 'stars' ? ' selected' : ''}>Stars</option>
       </select>
+      <select class="search-select" id="compat-select">
+        <option value="">All Tools</option>
+        <option value="claude-code">Claude Code</option>
+        <option value="codex">Codex</option>
+        <option value="cursor">Cursor</option>
+        <option value="copilot">Copilot</option>
+        <option value="gemini">Gemini</option>
+      </select>
     </div>
     <div id="results-info" class="browse-results-info"></div>
     <div id="results-grid" class="grid"></div>
@@ -56,11 +64,13 @@ export async function renderBrowse() {
   let searchTimeout: number;
   const searchInput = content.querySelector('#search-input') as HTMLInputElement;
   const sortSelect = content.querySelector('#sort-select') as HTMLSelectElement;
+  const compatSelect = content.querySelector('#compat-select') as HTMLSelectElement;
 
   const doSearch = async (page = 1) => {
     const query = searchInput.value;
     const category = catSelect.value || null;
     const sort = sortSelect.value;
+    const compat = compatSelect.value || null;
 
     setState({ searchQuery: query, searchCategory: category, searchSort: sort, searchPage: page });
 
@@ -73,7 +83,7 @@ export async function renderBrowse() {
     }
 
     try {
-      const result = await searchPackages(query, category, sort, page, 20);
+      const result = await searchPackages(query, category, sort, page, 20, compat);
 
       if (page === 1) {
         setState({ searchResults: result.packages, searchTotal: result.total });
@@ -108,6 +118,7 @@ export async function renderBrowse() {
 
   catSelect.addEventListener('change', () => doSearch(1));
   sortSelect.addEventListener('change', () => doSearch(1));
+  compatSelect.addEventListener('change', () => doSearch(1));
 
   content.querySelector('#load-more-btn')?.addEventListener('click', () => {
     doSearch(getState().searchPage + 1);

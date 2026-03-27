@@ -25,6 +25,7 @@ pub async fn search_packages(
     sort: Option<String>,
     page: u32,
     limit: u32,
+    compat: Option<String>,
 ) -> Result<PackageSearchResult, String> {
     let client = ApiClient::new(None);
     client
@@ -34,6 +35,7 @@ pub async fn search_packages(
             sort.as_deref(),
             page,
             limit,
+            compat.as_deref(),
         )
         .await
 }

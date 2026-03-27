@@ -31,8 +31,9 @@ export function packageCardHtml(pkg: Package): string {
   ];
 
   const compatHtml = compat
-    .map((c) => `<span class="pkg-card-compat-dot${c.active ? ' pkg-card-compat-dot--active' : ''}" title="${c.label}"></span>`)
-    .join('');
+    .filter((c) => c.active)
+    .map((c) => `<span style="font-family:'Geist Mono',monospace;font-size:9px;color:var(--success);letter-spacing:0.3px">${c.label.split(' ')[0]}</span>`)
+    .join(' ');
 
   return `
     <div class="pkg-card" data-author="${esc(pkg.author_id)}" data-name="${esc(pkg.name)}">
