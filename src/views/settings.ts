@@ -58,6 +58,20 @@ export async function renderSettings() {
     </div>
 
     <div class="settings-section">
+      <h2 class="h2" style="margin-bottom:16px">Keyboard Shortcuts</h2>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8px 24px;font-size:13px;max-width:400px">
+        <span style="color:var(--text-secondary)">Go back</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; [</span>
+        <span style="color:var(--text-secondary)">Go forward</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; ]</span>
+        <span style="color:var(--text-secondary)">Go back (alt)</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8997;&#8984; &#8592;</span>
+        <span style="color:var(--text-secondary)">Go forward (alt)</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8997;&#8984; &#8594;</span>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h2 class="h2" style="margin-bottom:16px">About</h2>
       <div style="font-size:13px;color:var(--text-secondary);line-height:22px">
         <p><strong style="color:var(--text-primary)">SkillVault Desktop</strong> v0.1.0</p>
