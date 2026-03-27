@@ -96,6 +96,7 @@ pub async fn install_package(
 
 #[tauri::command]
 pub async fn uninstall_skill(skill_name: String) -> Result<(), String> {
+    validate_name(&skill_name, "Skill name")?;
     installer::uninstall(&skill_name)
 }
 
@@ -239,6 +240,7 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, String> {
 
 #[tauri::command]
 pub async fn get_skill_detail(skill_name: String, skill_path: Option<String>) -> Result<SkillDetail, String> {
+    validate_name(&skill_name, "Skill name")?;
     // Use provided path if available, otherwise default to global
     let skill_dir = if let Some(ref p) = skill_path {
         std::path::PathBuf::from(p)
@@ -367,31 +369,34 @@ fn collect_files(dir: &std::path::Path, files: &mut Vec<SkillFile>) -> Result<()
 pub async fn read_file_content(file_path: String) -> Result<String, String> {
     let path = std::path::Path::new(&file_path);
 
-    // Security: only allow reading known safe files
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let claude_dir = home.join(".claude");
-    let filename = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
-    let codex_dir = home.join(".codex");
-    let is_claude_dir = path.starts_with(&claude_dir);
-    let is_codex_dir = path.starts_with(&codex_dir);
-    let is_codex_project = path.to_string_lossy().contains("/.codex/");
-    let is_claude_md = filename == "CLAUDE.md" || filename == "AGENTS.md";
-    let is_under_home = path.starts_with(&home);
-
-    if !(is_claude_dir || is_codex_dir || is_codex_project || (is_claude_md && is_under_home)) {
-        return Err("Can only read files within ~/.claude/, ~/.codex/, project .codex/ directories, or CLAUDE.md/AGENTS.md in your projects".to_string());
-    }
-
     if !path.exists() {
         return Err(format!("File not found: {}", file_path));
     }
 
-    std::fs::read_to_string(path)
+    // Canonicalize to resolve symlinks and ..
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|e| format!("Cannot resolve path: {}", e))?;
+
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let claude_dir = home.join(".claude");
+    let codex_dir = home.join(".codex");
+    let filename = canonical.file_name().and_then(|f| f.to_str()).unwrap_or("");
+    let is_claude_dir = canonical.starts_with(&claude_dir);
+    let is_codex_dir = canonical.starts_with(&codex_dir);
+    let is_claude_md = filename == "CLAUDE.md" || filename == "AGENTS.md";
+    let is_under_home = canonical.starts_with(&home);
+
+    if !(is_claude_dir || is_codex_dir || (is_claude_md && is_under_home)) {
+        return Err("Access denied: file is outside permitted directories".to_string());
+    }
+
+    std::fs::read_to_string(&canonical)
         .map_err(|e| format!("Failed to read file: {}", e))
 }
 
 #[tauri::command]
 pub async fn package_skill(skill_name: String) -> Result<PackagedSkill, String> {
+    validate_name(&skill_name, "Skill name")?;
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let skill_dir = home.join(".claude").join("skills").join(&skill_name);
 
@@ -529,6 +534,15 @@ pub async fn package_skills(
     // Resolve each skill directory
     let mut skill_dirs: Vec<(String, std::path::PathBuf)> = Vec::new();
     for (i, name) in skill_names.iter().enumerate() {
+        validate_name(name, "Skill name")?;
+
+        if !skill_paths[i].is_empty() {
+            let p = std::path::Path::new(&skill_paths[i]);
+            if !p.starts_with(&home) {
+                return Err(format!("Skill path must be under home directory: {}", skill_paths[i]));
+            }
+        }
+
         let dir = if skill_paths[i].is_empty() {
             home.join(".claude").join("skills").join(name)
         } else {
@@ -692,6 +706,7 @@ pub async fn install_plugin(
     install_scope: Option<String>,  // "user" (default) or a project path
     state: tauri::State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<String, String> {
+    validate_name(&plugin_name, "Plugin name")?;
     if plugin_source == "claude" {
         // Use claude CLI to install
         let mut cmd = std::process::Command::new("claude");
@@ -767,6 +782,7 @@ pub async fn uninstall_plugin(
     plugin_source: String,
     state: tauri::State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<String, String> {
+    validate_name(&plugin_name, "Plugin name")?;
     if plugin_source == "claude" {
         let output = std::process::Command::new("claude")
             .arg("plugin")
@@ -1159,6 +1175,7 @@ pub async fn get_plugin_detail(
     plugin_source: Option<String>,
     state: tauri::State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<PluginDetail, String> {
+    validate_name(&plugin_name, "Plugin name")?;
     let source = plugin_source.unwrap_or_else(|| "claude".to_string());
 
     if source == "codex" {

@@ -12,7 +12,10 @@ pub struct ApiClient {
 impl ApiClient {
     pub fn new(token: Option<String>) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             token,
         }
     }
