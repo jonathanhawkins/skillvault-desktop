@@ -187,6 +187,7 @@ export interface MarketplacePlugin {
   author_url: string | null;
   homepage: string | null;
   keywords: string[];
+  source: string;
   is_installed: boolean;
   installed_version: string | null;
   installed_at: string | null;
@@ -200,6 +201,7 @@ export interface PluginDetail {
   author_url: string | null;
   homepage: string | null;
   keywords: string[];
+  source: string;
   is_installed: boolean;
   installed_version: string | null;
   installed_at: string | null;

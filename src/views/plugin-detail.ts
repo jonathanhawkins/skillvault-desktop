@@ -9,6 +9,7 @@ export async function renderPluginDetail() {
 
   const state = getState();
   const pluginName = state.selectedPluginName;
+  const pluginSource = state.selectedPluginSource || 'claude';
 
   content.innerHTML = `
     <div class="detail-back" id="back-btn">
@@ -22,7 +23,7 @@ export async function renderPluginDetail() {
 
   let detail: PluginDetail;
   try {
-    detail = await getPluginDetail(pluginName);
+    detail = await getPluginDetail(pluginName, pluginSource);
   } catch (e: any) {
     content.innerHTML = `
       <div class="detail-back" id="back-btn">
@@ -60,6 +61,10 @@ export async function renderPluginDetail() {
     ? `<span style="background:var(--bg-secondary);color:var(--text-secondary);padding:3px 10px;border-radius:var(--radius-sm);font-size:12px">${esc(detail.category)}</span>`
     : '';
 
+  const sourceBadge = detail.source === 'codex'
+    ? '<span style="background:rgba(16,185,129,0.12);color:#10b981;padding:3px 10px;border-radius:var(--radius-sm);font-size:12px;font-weight:600">Codex</span>'
+    : '<span style="background:rgba(var(--accent-rgb,217,119,6),0.12);color:var(--accent);padding:3px 10px;border-radius:var(--radius-sm);font-size:12px;font-weight:600">Claude Code</span>';
+
   const installedInfoHtml = detail.is_installed
     ? `<div style="margin:16px 0;padding:16px;background:var(--bg-secondary);border-radius:var(--radius-md)">
         <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Installation Info</div>
@@ -92,6 +97,7 @@ export async function renderPluginDetail() {
       </div>
       <div style="color:var(--text-secondary);font-size:14px;line-height:1.5;margin-bottom:8px">${esc(detail.description)}</div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${sourceBadge}
         ${categoryBadge}
       </div>
       ${authorHtml}

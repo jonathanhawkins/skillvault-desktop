@@ -19,6 +19,7 @@ interface AppState {
   selectedFilePath: string;
   selectedFileTitle: string;
   selectedPluginName: string;
+  selectedPluginSource: string;
   loading: boolean;
   authenticated: boolean;
 }
@@ -40,6 +41,7 @@ const state: AppState = {
   selectedFilePath: '',
   selectedFileTitle: '',
   selectedPluginName: '',
+  selectedPluginSource: 'claude',
   loading: false,
   authenticated: false,
 };

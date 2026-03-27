@@ -604,7 +604,9 @@ fn read_blocklist() -> Vec<String> {
 }
 
 #[tauri::command]
-pub async fn get_marketplace_plugins() -> Result<Vec<MarketplacePlugin>, String> {
+pub async fn get_marketplace_plugins(
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) -> Result<Vec<MarketplacePlugin>, String> {
     let marketplace = read_marketplace_json()?;
     let installed = read_installed_plugins();
     let blocklist = read_blocklist();
@@ -627,12 +629,55 @@ pub async fn get_marketplace_plugins() -> Result<Vec<MarketplacePlugin>, String>
                 author_url: p.author.as_ref().and_then(|a| a.url.clone()),
                 homepage: p.homepage,
                 keywords: p.keywords,
+                source: "claude".to_string(),
                 is_installed: install_info.is_some(),
                 installed_version: install_info.and_then(|i| i.version.clone()),
                 installed_at: install_info.and_then(|i| i.installed_at.clone()),
             }
         })
         .collect();
+
+    // Check if we have cached Codex plugins
+    let cached = {
+        let app = state.lock().await;
+        app.codex_plugins_cache.clone()
+    };
+
+    if let Some(codex_plugins) = cached {
+        results.extend(codex_plugins);
+    } else {
+        // Fetch OpenAI/Codex plugins from GitHub
+        let openai_url = "https://raw.githubusercontent.com/openai/plugins/main/.agents/plugins/marketplace.json";
+        if let Ok(resp) = reqwest::get(openai_url).await {
+            if let Ok(catalog) = resp.json::<MarketplaceJson>().await {
+                let codex_plugins: Vec<MarketplacePlugin> = catalog
+                    .plugins
+                    .into_iter()
+                    .map(|p| MarketplacePlugin {
+                        name: p.name,
+                        description: p.description,
+                        category: p.category,
+                        author_name: p.author.as_ref().and_then(|a| a.name.clone()),
+                        author_url: p.author.as_ref().and_then(|a| a.url.clone()),
+                        homepage: p.homepage,
+                        keywords: p.keywords,
+                        source: "codex".to_string(),
+                        is_installed: false,
+                        installed_version: None,
+                        installed_at: None,
+                    })
+                    .collect();
+
+                // Cache the result
+                {
+                    let mut app = state.lock().await;
+                    app.codex_plugins_cache = Some(codex_plugins.clone());
+                }
+
+                results.extend(codex_plugins);
+            }
+        }
+    }
 
     results.sort_by(|a, b| {
         let cat_a = a.category.as_deref().unwrap_or("");
@@ -644,7 +689,44 @@ pub async fn get_marketplace_plugins() -> Result<Vec<MarketplacePlugin>, String>
 }
 
 #[tauri::command]
-pub async fn get_plugin_detail(plugin_name: String) -> Result<PluginDetail, String> {
+pub async fn get_plugin_detail(
+    plugin_name: String,
+    plugin_source: Option<String>,
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) -> Result<PluginDetail, String> {
+    let source = plugin_source.unwrap_or_else(|| "claude".to_string());
+
+    if source == "codex" {
+        // Look up from the cached Codex plugins
+        let cached = {
+            let app = state.lock().await;
+            app.codex_plugins_cache.clone()
+        };
+
+        let codex_plugins = cached.unwrap_or_default();
+        let entry = codex_plugins
+            .into_iter()
+            .find(|p| p.name == plugin_name)
+            .ok_or_else(|| format!("Codex plugin '{}' not found (try refreshing the plugin list)", plugin_name))?;
+
+        return Ok(PluginDetail {
+            name: entry.name,
+            description: entry.description,
+            category: entry.category,
+            author_name: entry.author_name,
+            author_url: entry.author_url,
+            homepage: entry.homepage,
+            keywords: entry.keywords,
+            source: "codex".to_string(),
+            is_installed: false,
+            installed_version: None,
+            installed_at: None,
+            install_path: None,
+            readme: None,
+        });
+    }
+
+    // Claude plugin lookup (existing logic)
     let marketplace = read_marketplace_json()?;
     let installed = read_installed_plugins();
 
@@ -677,6 +759,7 @@ pub async fn get_plugin_detail(plugin_name: String) -> Result<PluginDetail, Stri
         author_url: entry.author.as_ref().and_then(|a| a.url.clone()),
         homepage: entry.homepage,
         keywords: entry.keywords,
+        source: "claude".to_string(),
         is_installed: install_info.is_some(),
         installed_version: install_info.and_then(|i| i.version.clone()),
         installed_at: install_info.and_then(|i| i.installed_at.clone()),

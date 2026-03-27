@@ -227,14 +227,20 @@ export async function renderInstalled() {
           <span class="installed-section-label">Codex Config</span>
         </div>
         <div class="grid">
-          <div class="skill-card">
+          <div class="skill-card skill-card--clickable" data-codex-config-path="${esc(ls.codex_config.config_path)}">
             <div class="skill-card-header">
               <div class="skill-card-name">Configuration</div>
               <span class="skill-card-source skill-card-source--local">codex</span>
             </div>
-            ${ls.codex_config.model ? `<div class="skill-card-desc">Model: <strong>${esc(ls.codex_config.model)}</strong></div>` : ''}
-            ${ls.codex_config.trusted_projects.length > 0 ? `<div class="skill-card-meta">${ls.codex_config.trusted_projects.map(p => `<span>${esc(p)}</span>`).join('')}</div>` : ''}
-            <div class="skill-card-meta" style="font-family:'Geist Mono',monospace;font-size:10px"><span>${esc(ls.codex_config.config_path)}</span></div>
+            ${ls.codex_config.model ? `<div style="font-size:13px;color:var(--text-secondary);margin:4px 0">Model: <strong style="color:var(--text-primary)">${esc(ls.codex_config.model)}</strong></div>` : ''}
+            ${ls.codex_config.trusted_projects.length > 0 ? `<div style="margin:8px 0">
+              <div style="font-family:'Geist Mono',monospace;font-size:10px;color:var(--text-faint);margin-bottom:4px;letter-spacing:0.5px">TRUSTED PROJECTS</div>
+              ${ls.codex_config.trusted_projects.map(p => {
+                const short = p.replace(/^\/Users\/[^/]+\//, '~/');
+                return `<div style="font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-muted);padding:2px 0">${esc(short)}</div>`;
+              }).join('')}
+            </div>` : ''}
+            <div style="font-family:'Geist Mono',monospace;font-size:10px;color:var(--text-faint);margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">${esc(ls.codex_config.config_path.replace(/^\/Users\/[^/]+\//, '~/'))}</div>
           </div>
         </div>
       </div>`
@@ -442,6 +448,15 @@ export async function renderInstalled() {
       const path = (card as HTMLElement).dataset.rulePath!;
       const name = (card as HTMLElement).dataset.ruleName!;
       setState({ selectedFilePath: path, selectedFileTitle: name + ' — CLAUDE.md' });
+      navigate('file-detail');
+    });
+  });
+
+  // Click Codex config card
+  content.querySelectorAll('[data-codex-config-path]').forEach((card) => {
+    card.addEventListener('click', () => {
+      const path = (card as HTMLElement).dataset.codexConfigPath!;
+      setState({ selectedFilePath: path, selectedFileTitle: 'Codex Configuration' });
       navigate('file-detail');
     });
   });

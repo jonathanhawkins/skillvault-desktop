@@ -120,6 +120,7 @@ pub struct LocalState {
 pub struct AppState {
     pub auth_token: Option<String>,
     pub local_state: Option<LocalState>,
+    pub codex_plugins_cache: Option<Vec<MarketplacePlugin>>,
 }
 
 // SkillVault API response types
@@ -300,6 +301,7 @@ pub struct MarketplacePlugin {
     pub author_url: Option<String>,
     pub homepage: Option<String>,
     pub keywords: Vec<String>,
+    pub source: String,
     pub is_installed: bool,
     pub installed_version: Option<String>,
     pub installed_at: Option<String>,
@@ -314,6 +316,7 @@ pub struct PluginDetail {
     pub author_url: Option<String>,
     pub homepage: Option<String>,
     pub keywords: Vec<String>,
+    pub source: String,
     pub is_installed: bool,
     pub installed_version: Option<String>,
     pub installed_at: Option<String>,

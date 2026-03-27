@@ -85,8 +85,8 @@ export async function getMarketplacePlugins(): Promise<MarketplacePlugin[]> {
   return invoke('get_marketplace_plugins');
 }
 
-export async function getPluginDetail(pluginName: string): Promise<PluginDetail> {
-  return invoke('get_plugin_detail', { pluginName });
+export async function getPluginDetail(pluginName: string, pluginSource?: string): Promise<PluginDetail> {
+  return invoke('get_plugin_detail', { pluginName, pluginSource: pluginSource ?? null });
 }
 
 export async function packageSkill(skillName: string): Promise<PackagedSkill> {

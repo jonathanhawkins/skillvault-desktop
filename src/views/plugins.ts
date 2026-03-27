@@ -38,7 +38,7 @@ export async function renderPlugins() {
   // Extract unique categories
   const categories = Array.from(new Set(plugins.map(p => p.category).filter(Boolean) as string[])).sort();
 
-  renderPluginList(content, plugins, categories, '', 'all');
+  renderPluginList(content, plugins, categories, '', 'all', 'all');
 }
 
 function renderPluginList(
@@ -46,7 +46,8 @@ function renderPluginList(
   allPlugins: MarketplacePlugin[],
   categories: string[],
   searchQuery: string,
-  selectedCategory: string
+  selectedCategory: string,
+  selectedSource: string
 ) {
   // Filter plugins
   let filtered = allPlugins;
@@ -60,6 +61,9 @@ function renderPluginList(
   }
   if (selectedCategory !== 'all') {
     filtered = filtered.filter(p => p.category === selectedCategory);
+  }
+  if (selectedSource !== 'all') {
+    filtered = filtered.filter(p => p.source === selectedSource);
   }
 
   // Group by category
@@ -83,7 +87,7 @@ function renderPluginList(
           <span class="installed-section-count">${grouped[cat].length}</span>
         </div>
         <div class="grid">${grouped[cat].map(plugin => `
-          <div class="skill-card skill-card--clickable" data-plugin-browse="${esc(plugin.name)}">
+          <div class="skill-card skill-card--clickable" data-plugin-browse="${esc(plugin.name)}" data-plugin-source="${esc(plugin.source)}">
             <div class="skill-card-header">
               <div class="skill-card-name">${esc(plugin.name)}</div>
               ${plugin.is_installed
@@ -92,7 +96,7 @@ function renderPluginList(
             </div>
             <div class="skill-card-desc">${esc(plugin.description)}</div>
             <div class="skill-card-meta">
-              <span style="color:var(--accent)">Claude Code</span>
+              <span style="color:${plugin.source === 'codex' ? '#10b981' : 'var(--accent)'}">${plugin.source === 'codex' ? 'Codex' : 'Claude Code'}</span>
               ${plugin.category ? `<span>${esc(plugin.category)}</span>` : ''}
               ${plugin.author_name ? `<span>${esc(plugin.author_name)}</span>` : ''}
             </div>
@@ -110,33 +114,53 @@ function renderPluginList(
         <h1 class="h1">Plugins</h1>
       </div>
     </div>
-    <div style="display:flex;gap:12px;margin-bottom:24px">
-      <input type="text" class="search-input" id="plugin-search" placeholder="Search plugins..." value="${esc(searchQuery)}" style="flex:1">
+    <div style="display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap">
+      <input type="text" class="search-input" id="plugin-search" placeholder="Search plugins..." value="${esc(searchQuery)}" style="flex:1;min-width:200px">
       <select class="search-select" id="plugin-category-filter">
         <option value="all"${selectedCategory === 'all' ? ' selected' : ''}>All categories</option>
         ${categoryOptions}
+      </select>
+      <select class="search-select" id="plugin-source-filter">
+        <option value="all"${selectedSource === 'all' ? ' selected' : ''}>All Sources</option>
+        <option value="claude"${selectedSource === 'claude' ? ' selected' : ''}>Claude Code</option>
+        <option value="codex"${selectedSource === 'codex' ? ' selected' : ''}>Codex</option>
+      </select>
+      <select class="search-select" id="plugin-status-filter">
+        <option value="all">All Status</option>
+        <option value="installed">Installed</option>
+        <option value="available">Available</option>
       </select>
     </div>
     ${groupsHtml}
   `;
 
-  // Bind search
+  // Bind search and filters
   const searchInput = content.querySelector('#plugin-search') as HTMLInputElement;
   const categorySelect = content.querySelector('#plugin-category-filter') as HTMLSelectElement;
+  const sourceSelect = content.querySelector('#plugin-source-filter') as HTMLSelectElement;
+  const statusSelect = content.querySelector('#plugin-status-filter') as HTMLSelectElement;
 
-  searchInput?.addEventListener('input', () => {
-    renderPluginList(content, allPlugins, categories, searchInput.value, categorySelect.value);
-  });
+  const refilter = () => {
+    // Apply status filter before passing to renderPluginList
+    let filtered = allPlugins;
+    const status = statusSelect?.value;
+    if (status === 'installed') filtered = filtered.filter(p => p.is_installed);
+    if (status === 'available') filtered = filtered.filter(p => !p.is_installed);
+    renderPluginList(content, filtered, categories, searchInput.value, categorySelect.value, sourceSelect?.value || 'all');
+  };
 
-  categorySelect?.addEventListener('change', () => {
-    renderPluginList(content, allPlugins, categories, searchInput.value, categorySelect.value);
-  });
+  searchInput?.addEventListener('input', refilter);
+  categorySelect?.addEventListener('change', refilter);
+  sourceSelect?.addEventListener('change', refilter);
+  statusSelect?.addEventListener('change', refilter);
 
   // Bind card clicks
   content.querySelectorAll('[data-plugin-browse]').forEach((card) => {
     card.addEventListener('click', () => {
-      const name = (card as HTMLElement).dataset.pluginBrowse!;
-      setState({ selectedPluginName: name });
+      const el = card as HTMLElement;
+      const name = el.dataset.pluginBrowse!;
+      const source = el.dataset.pluginSource || 'claude';
+      setState({ selectedPluginName: name, selectedPluginSource: source });
       navigate('plugin-detail');
     });
   });
