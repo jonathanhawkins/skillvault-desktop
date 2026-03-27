@@ -298,28 +298,39 @@ export async function renderInstalled() {
       <div class="view-header-title">
         <h1 class="h1">My Skills</h1>
       </div>
-      <button class="btn btn--sm" id="scan-btn">Scan</button>
-    </div>
-    <div style="margin-bottom:16px;font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-faint);letter-spacing:0.5px">CLAUDE CODE</div>
-    <div class="installed-section">
-      <div class="installed-section-header">
-        <span class="installed-section-label">Global Skills</span>
-        <span class="installed-section-count">${globalSkills.length}</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="search-select" id="platform-filter" style="height:36px;font-size:10px">
+          <option value="all">All Platforms</option>
+          <option value="claude">Claude Code</option>
+          <option value="codex">Codex</option>
+        </select>
+        <button class="btn btn--sm" id="scan-btn">Scan</button>
       </div>
-      ${globalSkillsHtml}
     </div>
-    ${projectSkillsHtml}
-    ${agentsHtml}
-    ${hooksHtml}
-    ${pluginsHtml}
-    ${mcpServersHtml}
-    ${teamsHtml}
-    ${rulesHtml}
-    ${codexSeparatorHtml}
-    ${codexConfigHtml}
-    ${codexRulesHtml}
-    ${codexSkillsHtml}
-    ${codexAgentsHtml}
+    <div id="claude-sections">
+      <div style="margin-bottom:16px;font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-faint);letter-spacing:0.5px">CLAUDE CODE</div>
+      <div class="installed-section">
+        <div class="installed-section-header">
+          <span class="installed-section-label">Global Skills</span>
+          <span class="installed-section-count">${globalSkills.length}</span>
+        </div>
+        ${globalSkillsHtml}
+      </div>
+      ${projectSkillsHtml}
+      ${agentsHtml}
+      ${hooksHtml}
+      ${pluginsHtml}
+      ${mcpServersHtml}
+      ${teamsHtml}
+      ${rulesHtml}
+    </div>
+    <div id="codex-sections">
+      ${codexSeparatorHtml}
+      ${codexConfigHtml}
+      ${codexRulesHtml}
+      ${codexSkillsHtml}
+      ${codexAgentsHtml}
+    </div>
   `;
 
   // Bind events
@@ -330,6 +341,16 @@ export async function renderInstalled() {
 
   content.querySelector('#browse-btn')?.addEventListener('click', () => {
     navigate('browse');
+  });
+
+  // Platform filter
+  const platformFilter = content.querySelector('#platform-filter') as HTMLSelectElement;
+  platformFilter?.addEventListener('change', () => {
+    const val = platformFilter.value;
+    const claudeSections = content.querySelector('#claude-sections') as HTMLElement;
+    const codexSections = content.querySelector('#codex-sections') as HTMLElement;
+    if (claudeSections) claudeSections.style.display = (val === 'codex') ? 'none' : '';
+    if (codexSections) codexSections.style.display = (val === 'claude') ? 'none' : '';
   });
 
   // Click skill card to navigate to detail
