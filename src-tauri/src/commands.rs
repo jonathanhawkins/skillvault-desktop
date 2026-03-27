@@ -499,21 +499,23 @@ pub async fn publish_skill(
         .decode(&packaged.zip_base64)
         .map_err(|e| format!("Failed to decode zip: {}", e))?;
 
-    // 3. Create package metadata via API
+    // 3. Get the authenticated username
     let client = ApiClient::new(Some(token.clone()));
+    let username = client.get_me().await?;
+
+    // 4. Create package metadata via API
     client
         .create_package(&skill_name, &display_name, &tagline, &category)
         .await?;
 
-    // 4. Upload the zip with version
-    // We use "me" as author since the API resolves the author from the token
+    // 5. Upload the zip with version
     client
-        .upload_version("me", &skill_name, &version, zip_bytes)
+        .upload_version(&username, &skill_name, &version, zip_bytes)
         .await?;
 
     Ok(format!(
-        "Published {} v{} to skillvault.md",
-        display_name, version
+        "Published {}/{} v{} to skillvault.md",
+        username, display_name, version
     ))
 }
 
@@ -669,20 +671,23 @@ pub async fn publish_skills(
         .decode(&packaged.zip_base64)
         .map_err(|e| format!("Failed to decode zip: {}", e))?;
 
-    // 3. Create package metadata via API
+    // 3. Get the authenticated username
     let client = ApiClient::new(Some(token.clone()));
+    let username = client.get_me().await?;
+
+    // 4. Create package metadata via API
     client
         .create_package(&package_name, &display_name, &tagline, &category)
         .await?;
 
-    // 4. Upload the zip with version
+    // 5. Upload the zip with version
     client
-        .upload_version("me", &package_name, &version, zip_bytes)
+        .upload_version(&username, &package_name, &version, zip_bytes)
         .await?;
 
     Ok(format!(
-        "Published {} v{} to skillvault.md",
-        display_name, version
+        "Published {}/{} v{} to skillvault.md",
+        username, display_name, version
     ))
 }
 

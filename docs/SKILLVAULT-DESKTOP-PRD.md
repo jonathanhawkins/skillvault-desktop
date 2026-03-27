@@ -28,10 +28,10 @@ Users need a visual tool that makes skill management as simple as installing a g
 | Layer | Technology | Why |
 |-------|-----------|-----|
 | Framework | Tauri 2.0 | Cross-platform, small bundle (5-15MB), native window chrome |
-| Backend | Rust | Fast file scanning, safe zip extraction, OS keychain integration |
+| Backend | Rust | Fast file scanning, safe zip extraction, config file auth |
 | Frontend | Vanilla TypeScript + Vite | No framework overhead, matches SkillVault's philosophy |
 | Design | CSS (ported from SkillVault) | Dark theme, Geist fonts, consistent marketplace aesthetic |
-| Auth | Clerk via SkillVault API | `svt_` API tokens stored in OS keychain |
+| Auth | Clerk via SkillVault API | `svt_` API tokens stored in `~/.skillvault/config.json` |
 
 ## Architecture
 
@@ -53,7 +53,7 @@ Users need a visual tool that makes skill management as simple as installing a g
 │  │  API Client ─ talks to skillvault.md   │  │
 │  │  Installer ── downloads + extracts     │  │
 │  │  Publisher ── packages + uploads       │  │
-│  │  Auth ─────── OS keychain for tokens   │  │
+│  │  Auth ─────── ~/.skillvault/config.json │  │
 │  └───────────────────────────────────────┘  │
 └─────────────────────────────────────────────┘
          │                        │
@@ -77,6 +77,17 @@ The app scans and manages these locations:
 | MCP Servers | `~/.claude/settings.json` → `mcpServers` | JSON server definitions |
 
 Project-level files: `CLAUDE.md`, `AGENTS.md`, `.claude/` directories in repos.
+
+### Codex (OpenAI) File System
+
+The app also scans Codex directories:
+
+| Asset | Path | Format |
+|-------|------|--------|
+| Config | `~/.codex/config.json` | JSON (model, trusted projects) |
+| Rules | `~/.codex/instructions.md`, project `.codex/instructions.md` | Markdown |
+| Skills | `~/.codex/skills/*/SKILL.md` | Directory with SKILL.md |
+| Agents | `~/.codex/agents/*.md`, project `.codex/agents/*.md` | Markdown agent definitions |
 
 ## SkillVault API Integration
 
@@ -124,6 +135,83 @@ Written alongside installed skills to track their origin:
   "version": "1.2.0",
   "installed_at": "2026-03-26T...",
   "auto_update": true
+}
+```
+
+### CodexConfig (scanned from ~/.codex/)
+```typescript
+interface CodexConfig {
+  model: string | null;
+  trusted_projects: string[];
+  config_path: string;
+}
+```
+
+### CodexRule
+```typescript
+interface CodexRule {
+  name: string;
+  path: string;
+  preview: string;
+  project: string | null;         // null = global
+}
+```
+
+### CodexSkill
+```typescript
+interface CodexSkill {
+  name: string;
+  path: string;
+  description: string;
+  project: string | null;
+}
+```
+
+### CodexAgent
+```typescript
+interface CodexAgent {
+  name: string;
+  project: string | null;
+  path: string;
+}
+```
+
+### MarketplacePlugin (unified plugin browser)
+```typescript
+interface MarketplacePlugin {
+  name: string;
+  description: string;
+  category: string | null;
+  author_name: string | null;
+  author_url: string | null;
+  homepage: string | null;
+  keywords: string[];
+  source: string;                  // "claude-code" | "codex"
+  is_installed: boolean;
+  installed_version: string | null;
+  installed_at: string | null;
+}
+```
+
+### PluginDetail
+```typescript
+interface PluginDetail extends MarketplacePlugin {
+  install_path: string | null;
+  readme: string | null;
+}
+```
+
+### SkillDetail (local skill deep view)
+```typescript
+interface SkillDetail {
+  name: string;
+  path: string;
+  description: string;
+  skill_md_content: string;
+  files: SkillFile[];
+  source: string;
+  package_id: string | null;
+  installed_version: string | null;
 }
 ```
 
@@ -176,15 +264,15 @@ interface Package {
 4. Old version backed up to .trash
 
 ### 4. Authenticate
-**MVP**: User creates `svt_` token on skillvault.md → pastes into Settings
+User creates `svt_` token on skillvault.md → pastes into Settings → token stored in `~/.skillvault/config.json`.
 **Phase 2**: Deep-link OAuth via `skillvault://auth?token=...`
 
-### 5. Publish a Skill (Phase 2)
-1. User selects local skill in "My Skills"
-2. Clicks "Publish to SkillVault"
-3. App validates SKILL.md format
-4. Creates zip package
-5. Uploads via API
+### 5. Publish a Skill
+1. User navigates to "Publish" view
+2. Selects one or more local skills to package
+3. App validates SKILL.md format for each skill
+4. Creates zip package (supports multi-skill packages)
+5. Uploads via API with auth token
 
 ## Views / Screens
 
@@ -193,16 +281,21 @@ interface Package {
 - MY SKILLS — local installed count badge
 - BROWSE — marketplace search
 - TRENDING — trending packages
+- PLUGINS — 355 plugins (Claude Code + Codex)
+- PUBLISH — package and publish skills
+- RECENT — recent activity feed
 - Divider
 - SETTINGS — auth + preferences
 - Bottom: user avatar + name (if signed in) or "Sign In"
+- Keyboard shortcuts: Cmd+1-7 for views
 
 ### My Skills (default view)
 - Grid of locally installed skills
 - Each card: name, description, file count, source badge (SkillVault/Local)
 - Green "update available" badge
 - Context menu: Open in Finder, Uninstall, View on SkillVault
-- Collapsible sections: Agents, Hooks, Plugins
+- Collapsible sections: Agents, Hooks, Plugins, Rules, MCP Servers, Teams
+- Codex section: Codex config, rules, skills, agents
 
 ### Browse
 - Search bar with filter chips: Category, Compatibility, Pricing, Sort
@@ -211,12 +304,48 @@ interface Package {
 
 ### Package Detail
 - Hero: name, author, version, markdown description
-- Install / Update / Installed button
+- Install / Update / Installed button (global or project-scoped)
 - Tabs: Overview, Files, Reviews, Versions
 - Stats sidebar: compatibility dots, license, repo link, downloads, stars
 
+### Plugins
+- Unified browser for 119 Claude Code plugins + 236 Codex plugins
+- Platform filter tabs (All / Claude Code / Codex)
+- Search and category filtering
+- Install/uninstall directly from the list
+- Click through to Plugin Detail view
+
+### Plugin Detail
+- Plugin name, description, author, homepage link
+- Keywords/tags
+- Source badge (Claude Code / Codex)
+- Install/Uninstall button
+- README content (when available)
+
+### Skill Detail
+- Full SKILL.md content rendered
+- File tree browser for all files in the skill directory
+- Click through to File Detail for individual files
+- Source and version info
+
+### File Detail
+- Read-only file content viewer
+- Syntax-highlighted code display
+- File path and size metadata
+
+### Publish
+- Select local skills to package
+- Multi-skill package support
+- Automatic SKILL.md detection and validation
+- Package preview before upload
+- Direct upload to SkillVault marketplace
+
+### Recent
+- Activity feed of recent installs, uninstalls, and updates
+- Timestamps and action details
+
 ### Settings
-- API token input (masked, stored in keychain)
+- API token input (masked, stored in `~/.skillvault/config.json`)
 - Claude Code path override (default: ~/.claude/)
 - Scan interval preference
 - About / version info
@@ -256,23 +385,30 @@ Ported directly from SkillVault web:
 
 ## MVP Scope
 
-### In
+### Built (complete)
 - Tauri 2.0 project with Vite + TypeScript
-- Rust scanner for skills, hooks, plugins
+- Rust scanner for skills, agents, hooks, rules, plugins, MCP servers, teams
+- Codex scanner for config, rules, skills, agents
 - "My Skills" view with local skill cards
 - Marketplace browser (search, filter, trending)
 - Package detail view
-- One-click install/uninstall
+- One-click install/uninstall (global and project-scoped)
+- Plugin browser (355 plugins: 119 Claude Code + 236 Codex) with platform filters
+- Plugin install/uninstall
+- Plugin detail view
+- Skill detail view with file browser
+- File detail view (read file contents)
+- Multi-skill package publishing flow
+- Recent activity view
 - Update detection
-- Manual svt_ token auth
+- Manual svt_ token auth (stored in `~/.skillvault/config.json`)
 - macOS DMG build
 - File watcher for live ~/.claude/ changes
+- Keyboard shortcuts (Cmd+1-7, Cmd+[/], Cmd+F, Cmd+R)
+- 67 Rust tests
 
 ### Out (Phase 2+)
-- Publishing flow
 - Deep-link OAuth
-- Projects view
-- Teams/agents management
 - Star/review from desktop
 - Windows/Linux builds
 - Auto-update (Tauri updater)
@@ -282,15 +418,17 @@ Ported directly from SkillVault web:
 
 ```toml
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2.6.0"       # Native file/directory dialogs
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
 tokio = { version = "1", features = ["full"] }
 zip = "2"
 notify = "7"              # File watcher
-keyring = "3"             # OS keychain
 dirs = "6"                # Home directory resolution
+base64 = "0.22"           # Encoding for package uploads
 ```
 
 ## Distribution

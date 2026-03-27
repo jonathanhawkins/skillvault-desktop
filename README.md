@@ -23,22 +23,25 @@
 ## Features
 
 **Browse & Search the Marketplace**
-Explore the full [SkillVault](https://skillvault.md) catalog — search by name, tool, category, or keyword without leaving the app.
+Explore the full [SkillVault](https://skillvault.md) catalog — search by name, tool, category, or keyword without leaving the app. Filter by platform (Claude Code / Codex).
+
+**355 Plugins Browser**
+Browse 119 Claude Code plugins and 236 Codex plugins in a unified catalog. View details, install, and uninstall from a single interface.
 
 **One-Click Install & Uninstall**
-Install any skill to `~/.claude/` with a single click. Remove it just as easily.
+Install any skill or plugin to `~/.claude/` with a single click. Remove it just as easily.
 
-**Choose Install Location**
+**Project-Scoped Installation**
 Install skills globally or scope them to a specific project directory.
 
 **Local Skill Scanner**
-Automatically detects skills, agents, hooks, and plugins already on your machine by scanning `~/.claude/` and project directories.
+Automatically detects skills, agents, hooks, rules, and plugins already on your machine by scanning `~/.claude/` and project directories.
 
-**Browse 119 Official Plugins**
-Explore the full catalog of official Claude Code plugins alongside community skills.
+**Codex (OpenAI) Support**
+Scans Codex configuration, rules, skills, and agents. Browses the full Codex plugin registry alongside Claude Code plugins.
 
-**Publish Your Skills**
-Package and publish your own skills directly to the SkillVault marketplace from the app.
+**Multi-Skill Package Publishing**
+Package and publish your own skills directly to the SkillVault marketplace from the app. Supports multi-skill packages with automatic SKILL.md detection.
 
 **Auto-Update Detection**
 Get notified when installed skills have newer versions available on the marketplace.
@@ -46,8 +49,11 @@ Get notified when installed skills have newer versions available on the marketpl
 **Live File Watcher**
 Watches `~/.claude/` for changes and refreshes the UI in real time.
 
-**Secure Auth via OS Keychain**
-Your SkillVault token is stored in the macOS Keychain — never in plaintext config files.
+**Local Config File Auth**
+Your SkillVault API token is stored in `~/.skillvault/config.json` — simple, portable, and easy to manage.
+
+**Keyboard Shortcuts**
+Navigate with Cmd+1-7 for views, Cmd+[ / Cmd+] for back/forward, Cmd+F for search, and Cmd+R to refresh.
 
 **Dark Theme**
 Matches the SkillVault web aesthetic — dark theme with Geist fonts and warm-toned grays.
@@ -86,8 +92,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ```bash
 npm run tauri dev                                       # Start dev mode with hot reload
-cargo tauri build                                       # Build production .dmg
-cargo test --manifest-path src-tauri/Cargo.toml         # Run Rust tests
+npm run tauri build                                     # Build production .dmg
+cargo test --manifest-path src-tauri/Cargo.toml         # Run 67 Rust tests
 ```
 
 ---
@@ -96,7 +102,7 @@ cargo test --manifest-path src-tauri/Cargo.toml         # Run Rust tests
 
 SkillVault Desktop is built with **Tauri 2.0**, which pairs a Rust backend with a WebKit-based frontend window.
 
-- **Rust backend** — Handles file scanning (`~/.claude/`), HTTP requests to the SkillVault API, zip extraction for skill packages, and secure token storage via the macOS Keychain.
+- **Rust backend** — Handles file scanning (`~/.claude/` and Codex directories), HTTP requests to the SkillVault API, zip extraction for skill packages, and token storage in `~/.skillvault/config.json`.
 - **TypeScript frontend** — Vanilla TypeScript compiled with Vite. No React, Vue, or Svelte. All UI is hand-written DOM manipulation with CSS matching the SkillVault web design system.
 - **IPC bridge** — The frontend calls Rust functions through Tauri's typed command system. All heavy I/O stays in Rust; the frontend is purely presentational.
 
@@ -108,15 +114,15 @@ SkillVault Desktop is built with **Tauri 2.0**, which pairs a Rust backend with 
 skillvault-desktop/
 ├── src/                    # TypeScript frontend
 │   ├── main.ts             # Entry point
-│   ├── views/              # Installed, Browse, Trending, Detail, Settings
+│   ├── views/              # Installed, Browse, Trending, Detail, Plugins, Publish, Settings, etc.
 │   ├── components/         # Sidebar, package cards, toast notifications
 │   ├── lib/                # API wrappers, state management, router, types
 │   └── styles/             # CSS tokens, base styles, component styles
 ├── src-tauri/              # Rust backend
 │   ├── src/
-│   │   ├── scanner/        # Reads ~/.claude/ for skills, agents, hooks, plugins
+│   │   ├── scanner/        # Reads ~/.claude/ + Codex dirs for skills, agents, hooks, plugins
 │   │   ├── installer/      # Downloads + extracts packages from the API
-│   │   ├── api/            # HTTP client for skillvault.md + keychain auth
+│   │   ├── api/            # HTTP client for skillvault.md + config file auth
 │   │   ├── commands.rs     # Tauri IPC command handlers
 │   │   └── state.rs        # App state + data types
 │   ├── capabilities/       # Tauri permission declarations

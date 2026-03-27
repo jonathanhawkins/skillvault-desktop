@@ -125,6 +125,36 @@ impl ApiClient {
             .map_err(|e| format!("Failed to parse response: {}", e))
     }
 
+    /// Get the authenticated user's username
+    pub async fn get_me(&self) -> Result<String, String> {
+        let url = format!("{}/api/me", BASE_URL);
+        let token = self.token.as_ref()
+            .ok_or("Not authenticated — add your API token in Settings")?;
+
+        let resp = self.client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Authentication failed ({}): {}. Try re-entering your token in Settings.", status, text));
+        }
+
+        let body: serde_json::Value = resp.json().await
+            .map_err(|e| format!("Failed to parse user info: {}", e))?;
+
+        body.get("id")
+            .or_else(|| body.get("username"))
+            .or_else(|| body.get("github_username"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| "Could not determine username from API response".to_string())
+    }
+
     pub async fn create_package(
         &self,
         name: &str,

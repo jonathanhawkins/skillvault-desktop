@@ -61,28 +61,37 @@ fn read_config() -> Config {
 mod tests {
     use super::*;
 
+    // Tests use the Config struct directly to avoid writing to the real ~/.skillvault/config.json
+
     #[test]
-    fn test_save_and_get_token() {
-        let test_token = "svt_test_token_for_auth_test_12345";
-        save_token(test_token).unwrap();
-        let retrieved = get_token();
-        assert_eq!(retrieved, Some(test_token.to_string()));
-        // Cleanup
-        delete_token().unwrap();
-        assert_eq!(get_token(), None);
+    fn test_config_serialization_roundtrip() {
+        let config = Config { token: Some("svt_test123".to_string()) };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.token, Some("svt_test123".to_string()));
     }
 
     #[test]
-    fn test_delete_nonexistent_token() {
-        // Should not error even if no token exists
-        let result = delete_token();
-        assert!(result.is_ok());
+    fn test_config_default_has_no_token() {
+        let config = Config::default();
+        assert!(config.token.is_none());
     }
 
     #[test]
-    fn test_get_token_when_none() {
-        // Delete any existing token first
-        let _ = delete_token();
-        assert_eq!(get_token(), None);
+    fn test_config_deserialize_empty_json() {
+        let config: Config = serde_json::from_str("{}").unwrap();
+        assert!(config.token.is_none());
+    }
+
+    #[test]
+    fn test_config_deserialize_null_token() {
+        let config: Config = serde_json::from_str(r#"{"token": null}"#).unwrap();
+        assert!(config.token.is_none());
+    }
+
+    #[test]
+    fn test_config_deserialize_with_token() {
+        let config: Config = serde_json::from_str(r#"{"token": "svt_abc123"}"#).unwrap();
+        assert_eq!(config.token, Some("svt_abc123".to_string()));
     }
 }
