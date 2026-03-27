@@ -69,7 +69,9 @@ export function renderSidebar() {
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-user" data-view="settings">
-          ${state.authenticated ? 'Authenticated' : 'Sign In'}
+          ${state.authenticated
+            ? '<span style="display:flex;align-items:center;gap:6px"><svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="#22c55e"/></svg> Connected</span>'
+            : 'Connect Account'}
         </div>
       </div>
     </div>
@@ -81,16 +83,6 @@ export function renderSidebar() {
       e.preventDefault();
       const el = link as HTMLElement;
       const view = el.getAttribute('data-view') as any;
-
-      // If clicking "Sign In" in the footer, also open sign-in page in system browser
-      if (view === 'settings' && el.classList.contains('sidebar-user') && !getState().authenticated) {
-        try {
-          const { open } = window.__TAURI__.shell;
-          await open('https://skillvault.md/sign-in');
-        } catch {
-          // Ignore if shell open fails
-        }
-      }
 
       if (view) navigate(view);
     });
