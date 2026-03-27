@@ -514,6 +514,7 @@ pub async fn install_plugin(
     plugin_name: String,
     plugin_source: String,
     install_scope: Option<String>,  // "user" (default) or a project path
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<String, String> {
     if plugin_source == "claude" {
         // Use claude CLI to install
@@ -576,6 +577,10 @@ pub async fn install_plugin(
             }
         }
 
+        // Clear codex plugin cache so list refreshes
+        let mut app = state.lock().await;
+        app.codex_plugins_cache = None;
+
         Ok(format!("Installed {} to {}", plugin_name, target_dir.display()))
     }
 }
@@ -584,6 +589,7 @@ pub async fn install_plugin(
 pub async fn uninstall_plugin(
     plugin_name: String,
     plugin_source: String,
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<String, String> {
     if plugin_source == "claude" {
         let output = std::process::Command::new("claude")
@@ -607,6 +613,11 @@ pub async fn uninstall_plugin(
             std::fs::remove_dir_all(&plugin_dir)
                 .map_err(|e| format!("Failed to remove: {}", e))?;
         }
+
+        // Clear cache
+        let mut app = state.lock().await;
+        app.codex_plugins_cache = None;
+
         Ok(format!("Uninstalled {}", plugin_name))
     }
 }
