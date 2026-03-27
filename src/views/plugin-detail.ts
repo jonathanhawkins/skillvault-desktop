@@ -102,7 +102,7 @@ export async function renderPluginDetail() {
   const readmeHtml = detail.readme
     ? `<div style="margin-top:24px;border-top:1px solid var(--border);padding-top:24px">
         <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:12px">README</div>
-        <div class="detail-description">${simpleMarkdown(detail.readme)}</div>
+        <div class="detail-description">${simpleMarkdown(detail.readme, detail.source === 'codex' ? `https://raw.githubusercontent.com/openai/plugins/main/plugins/${detail.name}` : `https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/${detail.name}`)}</div>
       </div>`
     : '';
 
@@ -302,8 +302,23 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function simpleMarkdown(text: string): string {
-  const lines = text.split('\n');
+function simpleMarkdown(text: string, baseUrl?: string): string {
+  // Rewrite relative image/link URLs to absolute GitHub raw URLs
+  let processed = text;
+  if (baseUrl) {
+    // Fix relative image paths: ![alt](./path) or ![alt](path)
+    processed = processed.replace(/!\[([^\]]*)\]\((?!https?:\/\/)([^)]+)\)/g, (_, alt, path) => {
+      const cleanPath = path.replace(/^\.\//, '');
+      return `![${alt}](${baseUrl}/${cleanPath})`;
+    });
+    // Fix relative link paths: [text](./path) but not [text](http...)
+    processed = processed.replace(/\[([^\]]+)\]\((?!https?:\/\/)(?!#)([^)]+)\)/g, (_, text, path) => {
+      const cleanPath = path.replace(/^\.\//, '');
+      return `[${text}](${baseUrl}/${cleanPath})`;
+    });
+  }
+
+  const lines = processed.split('\n');
   const html: string[] = [];
   let i = 0;
 
