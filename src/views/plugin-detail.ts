@@ -316,6 +316,11 @@ function simpleMarkdown(text: string, baseUrl?: string): string {
       const cleanPath = path.replace(/^\.\//, '');
       return `[${text}](${baseUrl}/${cleanPath})`;
     });
+    // Fix HTML <img src="relative"> tags
+    processed = processed.replace(/src="(?!https?:\/\/)([^"]+)"/g, (_, path) => {
+      const cleanPath = path.replace(/^\.\//, '');
+      return `src="${baseUrl}/${cleanPath}"`;
+    });
   }
 
   const lines = processed.split('\n');
