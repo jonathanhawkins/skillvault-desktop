@@ -16,7 +16,7 @@ export async function renderSettings() {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         <div>
           <div style="font-size:14px;color:#22c55e;font-weight:500">Connected to SkillVault</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Your API token is securely stored in the system keychain.</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Your API token is stored locally in ~/.skillvault/config.json.</div>
         </div>
       </div>
       <button class="btn btn--sm" id="sign-out-btn" style="color:var(--error);border-color:rgba(239,68,68,0.3)">Disconnect</button>
@@ -64,7 +64,7 @@ export async function renderSettings() {
               </div>
               <button class="btn btn--primary btn--sm" id="save-token-btn">Connect</button>
             </div>
-            <p style="font-size:11px;color:var(--text-faint);margin-top:6px">Stored securely in your system keychain. Never sent anywhere except skillvault.md.</p>
+            <p style="font-size:11px;color:var(--text-faint);margin-top:6px">Stored locally in ~/.skillvault/config.json. Only sent to skillvault.md.</p>
           </div>
         </div>
       </div>

@@ -7,7 +7,7 @@ SkillVault Desktop is an open-source macOS companion app for the SkillVault mark
 ## Tech stack
 
 - **Framework:** Tauri 2.0 (Rust backend + WebKit frontend)
-- **Backend:** Rust (file scanning, zip extraction, HTTP client, keychain)
+- **Backend:** Rust (file scanning, zip extraction, HTTP client, local config)
 - **Frontend:** Vanilla TypeScript + Vite (no frameworks)
 - **Design:** Dark theme CSS ported from SkillVault web (Geist fonts)
 
@@ -19,7 +19,7 @@ skillvault-desktop/
 │   └── src/
 │       ├── scanner/    # Reads ~/.claude/ (skills, agents, hooks, plugins)
 │       ├── installer/  # Downloads + extracts packages from API
-│       ├── api/        # HTTP client for skillvault.md + keychain auth
+│       ├── api/        # HTTP client for skillvault.md + local config auth
 │       ├── commands.rs # Tauri IPC command handlers
 │       └── state.rs    # App state + data types
 ├── src/                # TypeScript frontend
@@ -47,7 +47,7 @@ npx tsc --noEmit                         # TypeScript type check
 2. **Dark theme only** for MVP. All colors via CSS custom properties in tokens.css.
 3. **Geist + Geist Mono** fonts. Match the SkillVault web aesthetic.
 4. **All file I/O in Rust.** Frontend communicates via Tauri IPC (`invoke`).
-5. **API tokens in OS keychain.** Never store secrets in files.
+5. **API tokens in ~/.skillvault/config.json.** The svt_ token only accesses SkillVault's API, not GitHub. Stored as plain JSON (same pattern as ~/.npmrc, ~/.svrc).
 6. **Security: validate zip paths.** Skip entries with `..` path traversal.
 7. **Never use `confirm()` or `alert()` in frontend code.** Tauri's WebKit blocks on browser dialogs and it freezes/crashes the app. Use inline confirmation UI instead (e.g., two-click confirm buttons, inline "Remove? [Yes] [No]").
 8. **Claude Code path encoding.** Project directories under `~/.claude/projects/` use `-` to replace `/` (e.g., `-Users-bone-dev-web-apps-skill-vault`). Simple `.replace('-', '/')` breaks paths with hyphens in directory names (like `web-apps`, `skill-vault`). Always use the smart recursive `decode_project_path` function in `scanner/rules.rs` that tries all possible segment joins and validates against the filesystem.
