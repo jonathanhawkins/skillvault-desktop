@@ -89,6 +89,14 @@ export async function getPluginDetail(pluginName: string, pluginSource?: string)
   return invoke('get_plugin_detail', { pluginName, pluginSource: pluginSource ?? null });
 }
 
+export async function installPlugin(pluginName: string, pluginSource: string, installScope?: string | null): Promise<string> {
+  return invoke('install_plugin', { pluginName, pluginSource, installScope: installScope ?? null });
+}
+
+export async function uninstallPlugin(pluginName: string, pluginSource: string): Promise<string> {
+  return invoke('uninstall_plugin', { pluginName, pluginSource });
+}
+
 export async function packageSkill(skillName: string): Promise<PackagedSkill> {
   return invoke('package_skill', { skillName });
 }

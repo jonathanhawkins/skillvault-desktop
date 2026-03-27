@@ -509,6 +509,108 @@ pub struct AuthStatus {
     pub authenticated: bool,
 }
 
+#[tauri::command]
+pub async fn install_plugin(
+    plugin_name: String,
+    plugin_source: String,
+    install_scope: Option<String>,  // "user" (default) or a project path
+) -> Result<String, String> {
+    if plugin_source == "claude" {
+        // Use claude CLI to install
+        let mut cmd = std::process::Command::new("claude");
+        cmd.arg("plugin").arg("install");
+        cmd.arg(format!("{}@claude-plugins-official", plugin_name));
+
+        match &install_scope {
+            Some(path) if path != "user" => {
+                cmd.arg("--scope").arg("project");
+                cmd.current_dir(path);
+            }
+            _ => {
+                cmd.arg("--scope").arg("user");
+            }
+        }
+
+        let output = cmd.output()
+            .map_err(|e| format!("Failed to run claude CLI: {}. Is 'claude' installed?", e))?;
+
+        if output.status.success() {
+            Ok(format!("Installed {} successfully", plugin_name))
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Install failed: {}", stderr))
+        }
+    } else {
+        // Codex: download from GitHub and place in codex plugins directory
+        let home = dirs::home_dir().ok_or("No home directory")?;
+        let target_dir = match &install_scope {
+            Some(path) if path != "user" => {
+                std::path::Path::new(path).join(".codex").join("plugins").join(&plugin_name)
+            }
+            _ => home.join(".codex").join("plugins").join(&plugin_name),
+        };
+
+        // Download plugin.json and README from GitHub
+        let base_url = format!(
+            "https://raw.githubusercontent.com/openai/plugins/main/plugins/{}",
+            plugin_name
+        );
+
+        std::fs::create_dir_all(&target_dir)
+            .map_err(|e| format!("Failed to create plugin dir: {}", e))?;
+
+        // Download key files
+        let client = reqwest::Client::new();
+        for file in &[".codex-plugin/plugin.json", "README.md", ".mcp.json"] {
+            let url = format!("{}/{}", base_url, file);
+            if let Ok(resp) = client.get(&url).send().await {
+                if resp.status().is_success() {
+                    if let Ok(content) = resp.text().await {
+                        let file_path = target_dir.join(file);
+                        if let Some(parent) = file_path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        let _ = std::fs::write(file_path, content);
+                    }
+                }
+            }
+        }
+
+        Ok(format!("Installed {} to {}", plugin_name, target_dir.display()))
+    }
+}
+
+#[tauri::command]
+pub async fn uninstall_plugin(
+    plugin_name: String,
+    plugin_source: String,
+) -> Result<String, String> {
+    if plugin_source == "claude" {
+        let output = std::process::Command::new("claude")
+            .arg("plugin")
+            .arg("uninstall")
+            .arg(format!("{}@claude-plugins-official", plugin_name))
+            .output()
+            .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
+
+        if output.status.success() {
+            Ok(format!("Uninstalled {}", plugin_name))
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Uninstall failed: {}", stderr))
+        }
+    } else {
+        // Codex: remove the plugin directory
+        let home = dirs::home_dir().ok_or("No home directory")?;
+        let plugin_dir = home.join(".codex").join("plugins").join(&plugin_name);
+        if plugin_dir.exists() {
+            std::fs::remove_dir_all(&plugin_dir)
+                .map_err(|e| format!("Failed to remove: {}", e))?;
+        }
+        Ok(format!("Uninstalled {}", plugin_name))
+    }
+}
+
 // --- Marketplace plugin JSON structures for deserialization ---
 
 #[derive(Deserialize)]

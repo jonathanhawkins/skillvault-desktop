@@ -1,5 +1,6 @@
 import { getState } from '../lib/state';
-import { getPluginDetail } from '../lib/api';
+import { getPluginDetail, installPlugin, uninstallPlugin, listProjects } from '../lib/api';
+import { showToast } from '../components/toast';
 import { navigate } from '../lib/router';
 import type { PluginDetail } from '../lib/types';
 
@@ -74,6 +75,26 @@ export async function renderPluginDetail() {
       </div>`
     : '';
 
+  // Build install/uninstall action section
+  let actionHtml = '';
+  if (detail.is_installed) {
+    actionHtml = `
+      <div style="margin:20px 0;display:flex;align-items:center;gap:12px">
+        <button class="btn btn--sm" id="uninstall-btn" style="color:var(--error);border-color:var(--error)">Uninstall</button>
+      </div>`;
+  } else {
+    actionHtml = `
+      <div style="margin:20px 0;display:flex;align-items:center;gap:0;position:relative">
+        <button class="btn btn--primary btn--sm" id="install-btn" style="border-top-right-radius:0;border-bottom-right-radius:0;padding:8px 16px">Install</button>
+        <button class="btn btn--primary btn--sm" id="install-dropdown-btn" style="border-top-left-radius:0;border-bottom-left-radius:0;border-left:1px solid rgba(0,0,0,0.2);padding:8px 8px;min-width:0">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div id="install-dropdown" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;min-width:220px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:0 8px 24px rgba(0,0,0,0.3);z-index:100;overflow:hidden">
+          <div id="install-dropdown-items" style="max-height:260px;overflow-y:auto"></div>
+        </div>
+      </div>`;
+  }
+
   const homepageBtn = detail.homepage
     ? `<button class="btn btn--sm" id="homepage-btn" style="margin-top:16px">View Homepage</button>`
     : '';
@@ -102,11 +123,14 @@ export async function renderPluginDetail() {
       </div>
       ${authorHtml}
       ${keywordsHtml}
+      ${actionHtml}
       ${installedInfoHtml}
       ${homepageBtn}
     </div>
     ${readmeHtml}
   `;
+
+  // --- Event bindings ---
 
   content.querySelector('#back-btn')?.addEventListener('click', () => navigate('plugins'));
 
@@ -119,6 +143,158 @@ export async function renderPluginDetail() {
         // Ignore if shell open fails
       }
     });
+  }
+
+  // --- Install button logic ---
+  if (!detail.is_installed) {
+    const installBtn = content.querySelector('#install-btn') as HTMLButtonElement | null;
+    const dropdownBtn = content.querySelector('#install-dropdown-btn') as HTMLButtonElement | null;
+    const dropdown = content.querySelector('#install-dropdown') as HTMLElement | null;
+    const dropdownItems = content.querySelector('#install-dropdown-items') as HTMLElement | null;
+
+    // Default install (global/user scope) on main button click
+    installBtn?.addEventListener('click', async () => {
+      await doInstall(detail, null, installBtn, dropdownBtn);
+    });
+
+    // Toggle dropdown
+    dropdownBtn?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!dropdown || !dropdownItems) return;
+
+      if (dropdown.style.display === 'none') {
+        // Populate dropdown
+        const itemStyle = 'padding:10px 14px;font-size:13px;color:var(--text-primary);cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s';
+        const hoverIn = "this.style.background='var(--bg-hover)'";
+        const hoverOut = "this.style.background='transparent'";
+
+        let items = `<div class="install-option" data-scope="user" style="${itemStyle}" onmouseover="${hoverIn}" onmouseout="${hoverOut}">
+          <div style="font-weight:500">Global</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">Install for all projects (user scope)</div>
+        </div>`;
+
+        // Load projects
+        try {
+          const projects = await listProjects();
+          for (const proj of projects) {
+            items += `<div class="install-option" data-scope="${esc(proj.path)}" style="${itemStyle}" onmouseover="${hoverIn}" onmouseout="${hoverOut}">
+              <div style="font-weight:500">${esc(proj.name)}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:2px;font-family:'Geist Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(proj.path)}</div>
+            </div>`;
+          }
+        } catch {
+          // Ignore errors loading projects
+        }
+
+        // Choose directory option
+        items += `<div class="install-option" data-scope="__choose__" style="${itemStyle};border-bottom:none" onmouseover="${hoverIn}" onmouseout="${hoverOut}">
+          <div style="font-weight:500;color:var(--accent)">Choose Directory...</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">Pick a project folder</div>
+        </div>`;
+
+        dropdownItems.innerHTML = items;
+        dropdown.style.display = 'block';
+
+        // Bind click handlers on dropdown items
+        dropdownItems.querySelectorAll('.install-option').forEach((el) => {
+          el.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            dropdown.style.display = 'none';
+
+            const scope = (el as HTMLElement).dataset.scope || 'user';
+
+            if (scope === '__choose__') {
+              try {
+                const { open } = await import('@tauri-apps/plugin-dialog');
+                const selected = await open({ directory: true, title: 'Choose project directory' });
+                if (selected) {
+                  await doInstall(detail, selected as string, installBtn, dropdownBtn);
+                }
+              } catch {
+                // User cancelled or dialog error
+              }
+              return;
+            }
+
+            await doInstall(detail, scope === 'user' ? null : scope, installBtn, dropdownBtn);
+          });
+        });
+      } else {
+        dropdown.style.display = 'none';
+      }
+    });
+
+    // Close dropdown on outside click
+    document.addEventListener('click', () => {
+      if (dropdown) dropdown.style.display = 'none';
+    }, { once: false });
+  }
+
+  // --- Uninstall button logic (two-click confirm) ---
+  if (detail.is_installed) {
+    content.querySelector('#uninstall-btn')?.addEventListener('click', () => {
+      const btn = content.querySelector('#uninstall-btn') as HTMLElement;
+      if (!btn) return;
+
+      if (btn.dataset.confirmed) {
+        btn.textContent = 'Removing...';
+        btn.style.pointerEvents = 'none';
+        uninstallPlugin(detail.name, detail.source).then(() => {
+          showToast(`Uninstalled "${detail.name}"`, 'success');
+          navigate('plugins');
+        }).catch((err) => {
+          showToast(`Failed: ${err}`, 'error');
+          btn.textContent = 'Uninstall';
+          btn.style.pointerEvents = '';
+          btn.style.background = '';
+          btn.style.borderColor = '';
+          btn.style.color = '';
+          delete btn.dataset.confirmed;
+        });
+      } else {
+        btn.dataset.confirmed = 'true';
+        btn.textContent = 'Confirm Remove';
+        btn.style.background = 'var(--error)';
+        btn.style.borderColor = 'var(--error)';
+        btn.style.color = '#fff';
+        setTimeout(() => {
+          if (btn) {
+            delete btn.dataset.confirmed;
+            btn.textContent = 'Uninstall';
+            btn.style.background = '';
+            btn.style.borderColor = '';
+            btn.style.color = '';
+          }
+        }, 3000);
+      }
+    });
+  }
+}
+
+async function doInstall(
+  detail: PluginDetail,
+  scope: string | null,
+  installBtn: HTMLButtonElement | null,
+  dropdownBtn: HTMLButtonElement | null,
+) {
+  if (installBtn) {
+    installBtn.textContent = 'Installing...';
+    installBtn.disabled = true;
+  }
+  if (dropdownBtn) dropdownBtn.disabled = true;
+
+  try {
+    const msg = await installPlugin(detail.name, detail.source, scope);
+    showToast(msg, 'success');
+    // Re-render to show installed state
+    renderPluginDetail();
+  } catch (err: any) {
+    showToast(`Install failed: ${err}`, 'error');
+    if (installBtn) {
+      installBtn.textContent = 'Install';
+      installBtn.disabled = false;
+    }
+    if (dropdownBtn) dropdownBtn.disabled = false;
   }
 }
 
