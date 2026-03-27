@@ -185,9 +185,21 @@ fn scan_codex_skills(skills_dir: &Path, project: Option<&str>) -> Vec<CodexSkill
                 continue;
             };
 
+            // For directory skills, point to SKILL.md inside (so file-detail can read it)
+            let display_path = if path.is_dir() {
+                let skill_md = path.join("SKILL.md");
+                if skill_md.exists() {
+                    skill_md.to_string_lossy().to_string()
+                } else {
+                    path.to_string_lossy().to_string()
+                }
+            } else {
+                path.to_string_lossy().to_string()
+            };
+
             skills.push(CodexSkill {
                 name: name.trim_end_matches(".md").to_string(),
-                path: path.to_string_lossy().to_string(),
+                path: display_path,
                 description,
                 project: project.map(|s| s.to_string()),
             });
@@ -212,6 +224,15 @@ fn scan_codex_agents(orchestrator_dir: &Path, project: Option<&str>) -> Vec<Code
 
             // Skip hidden files
             if name.starts_with('.') {
+                continue;
+            }
+
+            // Skip state/artifact files — only show real agent definitions
+            if name.ends_with(".last-assignment")
+                || name.ends_with(".log")
+                || name.ends_with(".tmp")
+                || name.ends_with(".json")
+            {
                 continue;
             }
 
