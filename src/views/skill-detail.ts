@@ -2,6 +2,7 @@ import { getState, setState } from '../lib/state';
 import { getSkillDetail, uninstallSkill } from '../lib/api';
 import { showToast } from '../components/toast';
 import { navigate } from '../lib/router';
+import { esc } from '../lib/utils';
 
 export async function renderSkillDetail() {
   const content = document.getElementById('content');
@@ -129,10 +130,6 @@ export async function renderSkillDetail() {
     `;
     content.querySelector('#back-btn')?.addEventListener('click', () => navigate('installed'));
   }
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function formatSize(bytes: number): string {

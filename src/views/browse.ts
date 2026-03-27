@@ -2,6 +2,7 @@ import { getState, setState } from '../lib/state';
 import { searchPackages, getCategories } from '../lib/api';
 import { packageCardHtml } from '../components/package-card';
 import { navigate } from '../lib/router';
+import { esc } from '../lib/utils';
 
 let categories: { category: string; count: number }[] = [];
 
@@ -126,8 +127,4 @@ export async function renderBrowse() {
 
   // Initial search
   doSearch(1);
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

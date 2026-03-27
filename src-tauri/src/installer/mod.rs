@@ -166,7 +166,17 @@ pub(crate) fn extract_zip(data: &[u8], target: &Path) -> Result<(), String> {
             continue;
         }
 
+        // Reject absolute paths
+        if std::path::Path::new(&name).is_absolute() {
+            continue;
+        }
+
         let out_path = target.join(&name);
+
+        // Verify the resolved path is still within target
+        if !out_path.starts_with(target) {
+            continue;
+        }
 
         if file.is_dir() {
             fs::create_dir_all(&out_path)

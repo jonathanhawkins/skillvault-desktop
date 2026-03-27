@@ -6,6 +6,9 @@ fn test_urlencoded_basic() {
     assert_eq!(urlencoded("rust-skill"), "rust-skill");
     assert_eq!(urlencoded("my_skill"), "my_skill");
     assert_eq!(urlencoded("v1.0.0"), "v1.0.0");
+    // Unicode: multi-byte characters must be percent-encoded per byte
+    assert_eq!(urlencoded("caf\u{00e9}"), "caf%C3%A9");
+    assert_eq!(urlencoded("\u{1f680}"), "%F0%9F%9A%80");
 }
 
 #[test]

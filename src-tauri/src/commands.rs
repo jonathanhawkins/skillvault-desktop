@@ -10,6 +10,21 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use zip::write::SimpleFileOptions;
 
+/// Validate a name for use in filesystem paths and CLI arguments.
+/// Must be lowercase alphanumeric + hyphens, 1-64 chars, no leading hyphen.
+fn validate_name(name: &str, label: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 64 {
+        return Err(format!("{} must be 1-64 characters", label));
+    }
+    if name.starts_with('-') || name.starts_with('.') {
+        return Err(format!("{} cannot start with '-' or '.'", label));
+    }
+    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_') {
+        return Err(format!("{} can only contain lowercase letters, digits, hyphens, and underscores", label));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn scan_local(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Result<LocalState, String> {
     let local_state = scanner::scan_all()?;

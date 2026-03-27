@@ -3,6 +3,7 @@ import { scanLocal, uninstallSkill } from '../lib/api';
 import { showToast } from '../components/toast';
 import { renderSidebar } from '../components/sidebar';
 import { navigate } from '../lib/router';
+import { esc, formatBytes } from '../lib/utils';
 
 export async function renderInstalled() {
   const content = document.getElementById('content');
@@ -495,14 +496,4 @@ export async function renderInstalled() {
       navigate('file-detail');
     });
   });
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }

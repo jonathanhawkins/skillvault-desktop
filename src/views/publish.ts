@@ -3,6 +3,7 @@ import { scanLocal, packageSkill, packageSkills, publishSkill, publishSkills, ge
 import { showToast } from '../components/toast';
 import { renderSidebar } from '../components/sidebar';
 import { navigate } from '../lib/router';
+import { esc, formatBytes } from '../lib/utils';
 import type { LocalSkill, PackagedSkill } from '../lib/types';
 
 const CATEGORIES = [
@@ -633,18 +634,4 @@ function renderSteps(active: PublishStep): string {
         .join('')}
     </div>
   `;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }

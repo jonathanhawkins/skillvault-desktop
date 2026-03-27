@@ -1,6 +1,7 @@
 import { getState } from '../lib/state';
 import { readFileContent } from '../lib/api';
 import { navigate } from '../lib/router';
+import { esc } from '../lib/utils';
 
 export async function renderFileDetail() {
   const content = document.getElementById('content');
@@ -57,10 +58,6 @@ function renderContent(filePath: string, content: string): string {
   }
   // Default: show as preformatted
   return `<pre style="background:var(--bg-secondary);padding:16px;border-radius:var(--radius-md);overflow-x:auto;font-family:'Geist Mono',monospace;font-size:13px;color:var(--text-primary);line-height:1.5;white-space:pre-wrap"><code>${esc(content)}</code></pre>`;
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function simpleMarkdown(text: string): string {

@@ -2,6 +2,7 @@ import { getState, setState } from '../lib/state';
 import { getPackage, installPackage, listProjects } from '../lib/api';
 import { showToast } from '../components/toast';
 import { navigate } from '../lib/router';
+import { esc, formatNum } from '../lib/utils';
 
 export async function renderDetail() {
   const content = document.getElementById('content');
@@ -231,14 +232,6 @@ export async function renderDetail() {
     `;
     content.querySelector('#back-btn')?.addEventListener('click', () => navigate('browse'));
   }
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function formatNum(n: number): string {
-  return n.toLocaleString('en-US');
 }
 
 function simpleMarkdown(text: string): string {

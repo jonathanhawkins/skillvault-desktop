@@ -227,17 +227,17 @@ impl ApiClient {
 }
 
 pub(crate) fn urlencoded(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            ' ' => "%20".to_string(),
-            '&' => "%26".to_string(),
-            '=' => "%3D".to_string(),
-            '+' => "%2B".to_string(),
-            '#' => "%23".to_string(),
-            _ if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '~' => {
-                c.to_string()
+    let mut result = String::with_capacity(s.len() * 3);
+    for byte in s.as_bytes() {
+        let c = *byte as char;
+        match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => {
+                result.push(c);
             }
-            _ => format!("%{:02X}", c as u32),
-        })
-        .collect()
+            _ => {
+                result.push_str(&format!("%{:02X}", byte));
+            }
+        }
+    }
+    result
 }

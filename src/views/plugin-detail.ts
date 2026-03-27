@@ -2,6 +2,7 @@ import { getState } from '../lib/state';
 import { getPluginDetail, installPlugin, uninstallPlugin, listProjects } from '../lib/api';
 import { showToast } from '../components/toast';
 import { navigate } from '../lib/router';
+import { esc } from '../lib/utils';
 import type { PluginDetail } from '../lib/types';
 
 export async function renderPluginDetail() {
@@ -296,10 +297,6 @@ async function doInstall(
     }
     if (dropdownBtn) dropdownBtn.disabled = false;
   }
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function simpleMarkdown(text: string, baseUrl?: string): string {

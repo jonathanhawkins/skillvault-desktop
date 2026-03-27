@@ -1,6 +1,7 @@
 import { getState, setState } from '../lib/state';
 import { getMarketplacePlugins } from '../lib/api';
 import { navigate } from '../lib/router';
+import { esc } from '../lib/utils';
 import type { MarketplacePlugin } from '../lib/types';
 
 export async function renderPlugins() {
@@ -224,8 +225,4 @@ function bindCardClicks(content: HTMLElement) {
       navigate('plugin-detail');
     });
   });
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

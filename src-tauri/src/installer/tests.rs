@@ -73,6 +73,25 @@ fn test_extract_zip_path_traversal() {
 }
 
 #[test]
+fn test_extract_zip_absolute_path() {
+    let dir = make_temp_dir("absolute");
+    let zip_data = create_zip_bytes(&[
+        ("good.txt", b"safe"),
+        ("/etc/passwd", b"malicious"),
+        ("/tmp/evil.txt", b"malicious"),
+    ]);
+
+    extract_zip(&zip_data, &dir).unwrap();
+
+    // good.txt should exist
+    assert!(dir.join("good.txt").exists());
+    // Absolute path entries should be skipped entirely
+    assert!(!dir.join("etc/passwd").exists());
+    assert!(!dir.join("tmp/evil.txt").exists());
+    cleanup(&dir);
+}
+
+#[test]
 fn test_uninstall_moves_to_trash() {
     // uninstall() uses get_skills_dir() which resolves to ~/.claude/skills/
     // We need to create a real skill there, uninstall it, and check .trash/

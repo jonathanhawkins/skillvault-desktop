@@ -1,12 +1,5 @@
 import type { Package } from '../lib/types';
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function formatNum(n: number): string {
-  return n.toLocaleString('en-US');
-}
+import { esc, formatNum } from '../lib/utils';
 
 export function packageCardHtml(pkg: Package): string {
   const displayName = pkg.display_name || pkg.name;

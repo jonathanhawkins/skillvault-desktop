@@ -19,6 +19,12 @@ export function navigate(view: ViewName, params?: Record<string, string>) {
     }
     history.push(view);
     historyIndex = history.length - 1;
+
+    const MAX_HISTORY = 50;
+    if (history.length > MAX_HISTORY) {
+      history.splice(0, history.length - MAX_HISTORY);
+      historyIndex = history.length - 1;
+    }
   }
 
   setState({ currentView: view, ...params } as any);
