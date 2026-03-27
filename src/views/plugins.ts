@@ -132,7 +132,7 @@ function renderPluginList(
         <option value="available">Available</option>
       </select>
     </div>
-    ${groupsHtml}
+    <div id="plugin-cards">${groupsHtml}</div>
   `;
 
   // Bind search and filters
@@ -145,13 +145,64 @@ function renderPluginList(
     const source = sourceSelect?.value || 'all';
     const category = categorySelect?.value || 'all';
     const status = statusSelect?.value || 'all';
+    const query = searchInput?.value || '';
     // Persist filter selections
     setState({ pluginSourceFilter: source, pluginCategoryFilter: category, pluginStatusFilter: status } as any);
-    // Apply status filter before passing to renderPluginList
+    // Apply all filters
     let filtered = allPlugins;
     if (status === 'installed') filtered = filtered.filter(p => p.is_installed);
     if (status === 'available') filtered = filtered.filter(p => !p.is_installed);
-    renderPluginList(content, filtered, categories, searchInput.value, category, source);
+    if (source !== 'all') filtered = filtered.filter(p => p.source === source);
+    if (query) {
+      const q = query.toLowerCase();
+      filtered = filtered.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        p.keywords.some((k: string) => k.toLowerCase().includes(q))
+      );
+    }
+    if (category !== 'all') filtered = filtered.filter(p => p.category === category);
+
+    // Re-render only the cards area
+    const grouped: Record<string, typeof filtered> = {};
+    for (const p of filtered) {
+      const cat = p.category || 'uncategorized';
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(p);
+    }
+    const sortedCats = Object.keys(grouped).sort();
+    const cardsContainer = content.querySelector('#plugin-cards');
+    if (cardsContainer) {
+      cardsContainer.innerHTML = sortedCats.length > 0
+        ? sortedCats.map(cat => `
+          <div class="installed-section">
+            <div class="installed-section-header">
+              <span class="installed-section-label">${esc(cat)}</span>
+              <span class="installed-section-count">${grouped[cat].length}</span>
+            </div>
+            <div class="grid">${grouped[cat].map(plugin => `
+              <div class="skill-card skill-card--clickable" data-plugin-browse="${esc(plugin.name)}" data-plugin-source="${esc(plugin.source)}">
+                <div class="skill-card-header">
+                  <div class="skill-card-name">${esc(plugin.name)}</div>
+                  ${plugin.is_installed
+                    ? '<span class="skill-card-source skill-card-source--skillvault">INSTALLED</span>'
+                    : '<span class="skill-card-source" style="color:var(--text-faint);border-color:var(--border)">AVAILABLE</span>'}
+                </div>
+                <div class="skill-card-desc">${esc(plugin.description)}</div>
+                <div class="skill-card-meta">
+                  <span style="color:${plugin.source === 'codex' ? '#10b981' : 'var(--accent)'}">${plugin.source === 'codex' ? 'Codex' : 'Claude Code'}</span>
+                  ${plugin.category ? `<span>${esc(plugin.category)}</span>` : ''}
+                  ${plugin.author_name ? `<span>${esc(plugin.author_name)}</span>` : ''}
+                </div>
+              </div>
+            `).join('')}</div>
+          </div>
+        `).join('')
+        : '<div class="empty-state"><div class="empty-state-text">No plugins found.</div></div>';
+
+      // Re-bind card clicks after re-render
+      bindCardClicks(content);
+    }
   };
 
   searchInput?.addEventListener('input', refilter);
@@ -160,6 +211,10 @@ function renderPluginList(
   statusSelect?.addEventListener('change', refilter);
 
   // Bind card clicks
+  bindCardClicks(content);
+}
+
+function bindCardClicks(content: HTMLElement) {
   content.querySelectorAll('[data-plugin-browse]').forEach((card) => {
     card.addEventListener('click', () => {
       const el = card as HTMLElement;

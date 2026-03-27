@@ -64,7 +64,7 @@ pub fn scan_codex(claude_dir: &Path) -> (Option<CodexConfig>, Vec<CodexRule>, Ve
 
 /// Parse ~/.codex/config.toml without a TOML crate.
 /// Extracts `model = "..."` and `[projects."<path>"]` sections.
-fn scan_codex_config(codex_dir: &Path) -> Option<CodexConfig> {
+pub(crate) fn scan_codex_config(codex_dir: &Path) -> Option<CodexConfig> {
     let config_path = codex_dir.join("config.toml");
     let content = fs::read_to_string(&config_path).ok()?;
 
@@ -101,7 +101,7 @@ fn scan_codex_config(codex_dir: &Path) -> Option<CodexConfig> {
 }
 
 /// Extract the string value from a line like `key = "value"`
-fn extract_toml_string_value(line: &str) -> Option<String> {
+pub(crate) fn extract_toml_string_value(line: &str) -> Option<String> {
     let eq_pos = line.find('=')?;
     let val = line[eq_pos + 1..].trim();
     let val = val.trim_matches('"').trim_matches('\'');
@@ -113,7 +113,7 @@ fn extract_toml_string_value(line: &str) -> Option<String> {
 }
 
 /// Scan a rules directory for .md files
-fn scan_codex_rules(rules_dir: &Path, project: Option<&str>) -> Vec<CodexRule> {
+pub(crate) fn scan_codex_rules(rules_dir: &Path, project: Option<&str>) -> Vec<CodexRule> {
     let mut rules = Vec::new();
     if !rules_dir.exists() {
         return rules;
@@ -126,7 +126,7 @@ fn scan_codex_rules(rules_dir: &Path, project: Option<&str>) -> Vec<CodexRule> {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().to_string();
-            if !name.ends_with(".md") {
+            if !name.ends_with(".md") || name.starts_with('.') {
                 continue;
             }
 
@@ -147,7 +147,7 @@ fn scan_codex_rules(rules_dir: &Path, project: Option<&str>) -> Vec<CodexRule> {
 }
 
 /// Scan a skills directory for skill files/directories
-fn scan_codex_skills(skills_dir: &Path, project: Option<&str>) -> Vec<CodexSkill> {
+pub(crate) fn scan_codex_skills(skills_dir: &Path, project: Option<&str>) -> Vec<CodexSkill> {
     let mut skills = Vec::new();
     if !skills_dir.exists() {
         return skills;
@@ -211,7 +211,7 @@ fn scan_codex_skills(skills_dir: &Path, project: Option<&str>) -> Vec<CodexSkill
 }
 
 /// Scan an orchestrator directory for agent files/subdirectories
-fn scan_codex_agents(orchestrator_dir: &Path, project: Option<&str>) -> Vec<CodexAgent> {
+pub(crate) fn scan_codex_agents(orchestrator_dir: &Path, project: Option<&str>) -> Vec<CodexAgent> {
     let mut agents = Vec::new();
     if !orchestrator_dir.exists() {
         return agents;
@@ -250,3 +250,7 @@ fn scan_codex_agents(orchestrator_dir: &Path, project: Option<&str>) -> Vec<Code
     agents.sort_by(|a, b| a.name.cmp(&b.name));
     agents
 }
+
+#[cfg(test)]
+#[path = "codex_tests.rs"]
+mod tests;
