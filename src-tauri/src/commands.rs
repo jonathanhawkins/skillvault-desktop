@@ -851,6 +851,66 @@ pub(crate) fn codex_plugin_uninstall_dir(plugin_name: &str) -> Result<(), String
 }
 
 #[cfg(test)]
+mod validate_name_tests {
+    use super::validate_name;
+
+    #[test]
+    fn test_valid_names() {
+        assert!(validate_name("my-skill", "test").is_ok());
+        assert!(validate_name("team-build", "test").is_ok());
+        assert!(validate_name("a", "test").is_ok());
+        assert!(validate_name("skill_v2", "test").is_ok());
+        assert!(validate_name("rust-analyzer-lsp", "test").is_ok());
+    }
+
+    #[test]
+    fn test_empty_name() {
+        assert!(validate_name("", "test").is_err());
+    }
+
+    #[test]
+    fn test_too_long_name() {
+        let long = "a".repeat(65);
+        assert!(validate_name(&long, "test").is_err());
+        // 64 chars is ok
+        let max = "a".repeat(64);
+        assert!(validate_name(&max, "test").is_ok());
+    }
+
+    #[test]
+    fn test_leading_hyphen_rejected() {
+        assert!(validate_name("-bad", "test").is_err());
+    }
+
+    #[test]
+    fn test_leading_dot_rejected() {
+        assert!(validate_name(".hidden", "test").is_err());
+    }
+
+    #[test]
+    fn test_uppercase_rejected() {
+        assert!(validate_name("MySkill", "test").is_err());
+    }
+
+    #[test]
+    fn test_path_traversal_rejected() {
+        assert!(validate_name("../../etc", "test").is_err());
+        assert!(validate_name("../secret", "test").is_err());
+    }
+
+    #[test]
+    fn test_spaces_rejected() {
+        assert!(validate_name("my skill", "test").is_err());
+    }
+
+    #[test]
+    fn test_special_chars_rejected() {
+        assert!(validate_name("skill@1.0", "test").is_err());
+        assert!(validate_name("skill/name", "test").is_err());
+        assert!(validate_name("--help", "test").is_err());
+    }
+}
+
 mod plugin_tests {
     use super::*;
     use std::fs;
