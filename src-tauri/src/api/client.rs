@@ -185,8 +185,12 @@ impl ApiClient {
             .await
             .map_err(|e| format!("Create package request failed: {}", e))?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
+        let status = resp.status();
+        if status.as_u16() == 409 {
+            // Package already exists — that's fine, we'll just upload a new version
+            return Ok(());
+        }
+        if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
             return Err(format!("Create package failed ({}): {}", status, text));
         }
