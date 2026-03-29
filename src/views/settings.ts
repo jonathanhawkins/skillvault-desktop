@@ -140,7 +140,7 @@ export async function renderSettings() {
     content.querySelector('#sign-out-btn')?.addEventListener('click', async () => {
       try {
         await clearAuthToken();
-        setState({ authenticated: false });
+        setState({ authenticated: false, username: null });
         showToast('Disconnected', 'success');
         renderSidebar();
         renderSettings();
@@ -173,7 +173,9 @@ export async function renderSettings() {
 
       try {
         await setAuthToken(token);
-        setState({ authenticated: true });
+        // Fetch username now that we're authenticated
+        const auth = await getAuthStatus();
+        setState({ authenticated: true, username: auth.username ?? null });
         showToast('Connected to SkillVault', 'success');
         renderSidebar();
         renderSettings();

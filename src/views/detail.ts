@@ -1,5 +1,5 @@
 import { getState, setState } from '../lib/state';
-import { getPackage, installPackage, listProjects } from '../lib/api';
+import { getPackage, installPackage, listProjects, deletePackage } from '../lib/api';
 import { showToast } from '../components/toast';
 import { navigate } from '../lib/router';
 import { esc, formatNum } from '../lib/utils';
@@ -30,10 +30,48 @@ export async function renderDetail() {
       setState({ selectedPackage: pkg });
     }
 
-    // Check if already installed
-    const installed = state.localState?.skills.find(
+    // Check if already installed — match by package_id or by skill names present locally
+    let installed = state.localState?.skills.find(
       (s) => s.package_id === `${pkg!.author_id}/${pkg!.name}`
     );
+
+    // For bundles or local skills, match by skill_names
+    type MatchedSkill = { name: string; location: string; path: string };
+    let matchedSkills: MatchedSkill[] = [];
+
+    if ((pkg as any).skill_names) {
+      try {
+        const skillNames: string[] = typeof (pkg as any).skill_names === 'string'
+          ? JSON.parse((pkg as any).skill_names)
+          : (pkg as any).skill_names;
+        if (skillNames.length > 0 && state.localState?.skills) {
+          for (const sn of skillNames) {
+            const found = state.localState.skills.filter(s => s.name === sn);
+            for (const f of found) {
+              matchedSkills.push({
+                name: f.name,
+                location: f.project || 'Global',
+                path: f.path,
+              });
+            }
+          }
+          if (!installed && matchedSkills.length > 0) {
+            installed = state.localState.skills.find(s => s.name === matchedSkills[0].name);
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    // If installed by package_id but no matchedSkills, add single entry
+    if (installed && matchedSkills.length === 0) {
+      matchedSkills.push({
+        name: installed.name,
+        location: installed.project || 'Global',
+        path: installed.path,
+      });
+    }
 
     const compat = [
       { label: 'Claude Code', active: pkg.compat_claude_code },
@@ -53,8 +91,42 @@ export async function renderDetail() {
         ? '<span class="badge" style="color:var(--success);border-color:var(--success)">FREE</span>'
         : `<span class="badge" style="color:var(--accent);border-color:var(--accent)">$${(pkg.price_cents / 100).toFixed(2)}</span>`;
 
+    const isOwner = state.authenticated && state.username && pkg.author_id === state.username;
+
+    const ownerBtnHtml = isOwner
+      ? `<button class="btn btn--sm" id="edit-pkg-btn" style="border-color:var(--accent);color:var(--accent)">Edit</button>
+         <button class="btn btn--sm" id="unpublish-btn" style="border-color:var(--error, #e55);color:var(--error, #e55)">Unpublish</button>`
+      : '';
+
+    // Group matched skills by location
+    const locationGroups = new Map<string, MatchedSkill[]>();
+    for (const ms of matchedSkills) {
+      if (!locationGroups.has(ms.location)) locationGroups.set(ms.location, []);
+      locationGroups.get(ms.location)!.push(ms);
+    }
+
+    const installedInfoHtml = installed && matchedSkills.length > 0
+      ? `<div style="margin-top:16px;padding:12px 16px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:8px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <span style="font-size:13px;font-weight:500;color:#22c55e">Installed on this machine</span>
+          </div>
+          ${Array.from(locationGroups.entries()).map(([loc, skills]) => `
+            <div style="margin-top:6px">
+              <div style="font-family:'Geist Mono',monospace;font-size:10px;color:var(--text-faint);letter-spacing:0.5px;margin-bottom:4px">${esc(loc.toUpperCase())}</div>
+              ${skills.map(s => `
+                <div style="font-size:12px;color:var(--text-secondary);padding:2px 0;display:flex;align-items:center;gap:6px">
+                  <span style="color:var(--text-primary);font-weight:500">${esc(s.name)}</span>
+                  <span style="font-family:'Geist Mono',monospace;font-size:10px;color:var(--text-faint)">${esc(s.path.replace(/^\/Users\/[^/]+\//, '~/'))}</span>
+                </div>
+              `).join('')}
+            </div>
+          `).join('')}
+        </div>`
+      : '';
+
     const installBtnHtml = installed
-      ? '<button class="btn btn--sm" disabled>Installed</button>'
+      ? ''
       : `<div class="install-dropdown-wrap" style="position:relative;display:inline-block">
           <button class="btn btn--primary btn--sm" id="install-btn">Install</button>
           <button class="btn btn--primary btn--sm" id="install-chevron" style="padding:4px 6px;margin-left:-1px;border-left:1px solid rgba(0,0,0,0.2)" aria-label="Choose install location">
@@ -82,14 +154,16 @@ export async function renderDetail() {
         </div>
         <h1 class="detail-name">${esc(pkg.display_name || pkg.name)}</h1>
         <div class="pkg-card-author" style="margin-bottom:12px">
-          ${pkg.author_avatar_url ? `<img class="pkg-card-avatar" src="${esc(pkg.author_avatar_url)}" width="20" height="20">` : ''}
+          ${pkg.author_avatar_url && /^https?:\/\//i.test(pkg.author_avatar_url) ? `<img class="pkg-card-avatar" src="${esc(pkg.author_avatar_url)}" width="20" height="20">` : ''}
           <span>${esc(pkg.author_display_name || pkg.author_id)}</span>
         </div>
         ${pkg.tagline ? `<p class="detail-tagline">${esc(pkg.tagline)}</p>` : ''}
         <div class="detail-actions">
           ${installBtnHtml}
-          ${pkg.repo_url ? `<a class="btn btn--sm" href="${esc(pkg.repo_url)}" target="_blank" rel="noopener">Repository</a>` : ''}
+          ${pkg.repo_url && /^https?:\/\//i.test(pkg.repo_url) ? `<a class="btn btn--sm" href="${esc(pkg.repo_url)}" target="_blank" rel="noopener">Repository</a>` : ''}
+          ${ownerBtnHtml}
         </div>
+        ${installedInfoHtml}
       </div>
       <div class="detail-stats">
         <div class="detail-stat">
@@ -193,9 +267,10 @@ export async function renderDetail() {
         });
       });
 
-      // Close menu on outside click
-      document.addEventListener('click', (e) => {
-        if (!chevronBtn.contains(e.target as Node) && !installMenu.contains(e.target as Node)) {
+      // Close menu on outside click (scoped to content so it's cleaned up on re-render)
+      content.addEventListener('click', (e) => {
+        if (chevronBtn && installMenu &&
+            !chevronBtn.contains(e.target as Node) && !installMenu.contains(e.target as Node)) {
           installMenu.style.display = 'none';
         }
       });
@@ -205,6 +280,43 @@ export async function renderDetail() {
     if (installBtn) {
       installBtn.addEventListener('click', () => doInstall(null));
     }
+
+    // Owner actions
+    content.querySelector('#edit-pkg-btn')?.addEventListener('click', () => {
+      setState({ selectedPackage: pkg });
+      navigate('edit-package');
+    });
+
+    content.querySelector('#unpublish-btn')?.addEventListener('click', () => {
+      const btn = content!.querySelector('#unpublish-btn') as HTMLButtonElement;
+      const parent = btn.parentElement;
+      if (!parent) return;
+      const original = parent.innerHTML;
+      // Replace button area with confirm/cancel
+      btn.outerHTML = `
+        <span style="font-size:11px;color:var(--error, #e55)">Unpublish?</span>
+        <button class="btn btn--sm" id="confirm-unpub" style="border-color:var(--error, #e55);color:var(--error, #e55);padding:4px 10px;font-size:11px">Yes</button>
+        <button class="btn btn--sm" id="cancel-unpub" style="padding:4px 10px;font-size:11px">No</button>
+      `;
+      content!.querySelector('#confirm-unpub')?.addEventListener('click', async () => {
+        const confirmBtn = content!.querySelector('#confirm-unpub') as HTMLButtonElement;
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Unpublishing...';
+        try {
+          await deletePackage(pkg!.author_id, pkg!.name);
+          showToast(`${pkg!.display_name || pkg!.name} unpublished`, 'success');
+          navigate('browse');
+        } catch (err: any) {
+          showToast(`Unpublish failed: ${err}`, 'error');
+          // Re-render the page
+          navigate('detail');
+        }
+      });
+      content!.querySelector('#cancel-unpub')?.addEventListener('click', () => {
+        // Restore the unpublish button
+        navigate('detail');
+      });
+    });
 
     async function doInstall(installPath: string | null) {
       const btn = content!.querySelector('#install-btn') as HTMLButtonElement | null;
@@ -227,7 +339,7 @@ export async function renderDetail() {
     content.innerHTML = `
       <div class="detail-back" id="back-btn">Back</div>
       <div class="empty-state">
-        <div class="empty-state-text">Failed to load package: ${e?.toString()}</div>
+        <div class="empty-state-text">Failed to load package: ${esc(e?.toString() || 'Unknown error')}</div>
       </div>
     `;
     content.querySelector('#back-btn')?.addEventListener('click', () => navigate('browse'));
@@ -286,7 +398,7 @@ function simpleMarkdown(text: string): string {
     // Image-only line (badges etc): ![alt](url)
     if (/^\s*!\[.*?\]\(.+?\)\s*$/.test(line)) {
       const imgMatch = line.match(/!\[([^\]]*)\]\(([^)]+)\)/);
-      if (imgMatch) {
+      if (imgMatch && /^https?:\/\//i.test(imgMatch[2])) {
         html.push(
           `<p style="margin:8px 0"><img src="${esc(imgMatch[2])}" alt="${esc(imgMatch[1])}" style="max-width:100%;height:auto"></p>`
         );
@@ -372,21 +484,35 @@ function simpleMarkdown(text: string): string {
 }
 
 function inlineMarkdown(text: string): string {
-  return text
-    // Images (must come before links)
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;height:auto;vertical-align:middle">')
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">$1</a>')
-    // Bold + italic
-    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong style="color:var(--text-primary)"><em>$1</em></strong>')
-    // Bold
-    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text-primary)">$1</strong>')
-    // Italic
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // Strikethrough
-    .replace(/~~(.+?)~~/g, '<del>$1</del>')
-    // Inline code
-    .replace(/`([^`]+)`/g, '<code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-family:\'Geist Mono\',monospace;font-size:0.9em">$1</code>');
+  // Escape HTML first to prevent XSS injection
+  let safe = esc(text);
+
+  // Images: only allow http/https src
+  safe = safe.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) => {
+    if (!/^https?:\/\//i.test(url)) return esc(alt);
+    return `<img src="${esc(url)}" alt="${esc(alt)}" style="max-width:100%;height:auto;vertical-align:middle">`;
+  });
+  // Links: only allow http/https href
+  safe = safe.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => {
+    if (!/^https?:\/\//i.test(url)) return label;
+    return `<a href="${esc(url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${label}</a>`;
+  });
+  // Bold + italic
+  safe = safe.replace(/\*\*\*(.+?)\*\*\*/g, '<strong style="color:var(--text-primary)"><em>$1</em></strong>');
+  // Bold
+  safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text-primary)">$1</strong>');
+  // Italic
+  safe = safe.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Strikethrough
+  safe = safe.replace(/~~(.+?)~~/g, '<del>$1</del>');
+  // Inline code
+  safe = safe.replace(/`([^`]+)`/g, '<code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-family:\'Geist Mono\',monospace;font-size:0.9em">$1</code>');
+  // Auto-link bare URLs — skip URLs already inside href="..." or src="..."
+  safe = safe.replace(/(^|[\s(])(?![^<]*>)((https?:\/\/)[^\s<)]+)/g, (_m, prefix, url) => {
+    return `${prefix}<a href="${esc(url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${url}</a>`;
+  });
+
+  return safe;
 }
 
 function renderTable(tableLines: string[]): string {

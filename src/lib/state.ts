@@ -26,6 +26,7 @@ interface AppState {
   pluginStatusFilter: string;
   loading: boolean;
   authenticated: boolean;
+  username: string | null;
 }
 
 const state: AppState = {
@@ -52,6 +53,7 @@ const state: AppState = {
   pluginStatusFilter: 'all',
   loading: false,
   authenticated: false,
+  username: null,
 };
 
 const listeners: Listener[] = [];

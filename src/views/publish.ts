@@ -7,15 +7,26 @@ import { esc, formatBytes } from '../lib/utils';
 import type { LocalSkill, PackagedSkill } from '../lib/types';
 
 const CATEGORIES = [
-  'productivity',
-  'development',
-  'toolkit',
   'automation',
-  'communication',
+  'coding',
+  'configs',
+  'data',
+  'database',
+  'deployment',
+  'design',
+  'devops',
+  'docs',
+  'gamedev',
+  'ai',
+  'learning',
+  'mobile',
+  'monitoring',
+  'productivity',
   'security',
   'testing',
-  'documentation',
-  'devops',
+  'toolkit',
+  'web',
+  'other',
 ];
 
 type PublishStep = 'select' | 'metadata' | 'publishing';
@@ -385,7 +396,7 @@ function renderMetadataStep(content: HTMLElement) {
           <select class="settings-input" id="pub-category">
             ${CATEGORIES.map(
               (cat) =>
-                `<option value="${cat}"${cat === 'development' ? ' selected' : ''}>${cat.charAt(0).toUpperCase() + cat.slice(1)}</option>`
+                `<option value="${cat}"${cat === 'coding' ? ' selected' : ''}>${cat.charAt(0).toUpperCase() + cat.slice(1)}</option>`
             ).join('')}
           </select>
         </div>
@@ -503,7 +514,7 @@ async function renderPublishingStep(
     </div>
   `;
 
-  if (!displayName || !tagline === undefined || !category || !version) {
+  if (!displayName || tagline == null || !category || !version) {
     currentStep = 'metadata';
     renderPublish();
     return;
@@ -560,7 +571,14 @@ async function renderPublishingStep(
     content.querySelector('#view-on-sv-btn')?.addEventListener('click', async () => {
       try {
         const { open } = window.__TAURI__.shell;
-        await open(`https://skillvault.md/packages`);
+        // Extract "author/name" from result like "Published author/Display Name v1.0.0 to skillvault.md"
+        const match = result.match(/Published\s+(\S+)\//);
+        const author = match ? match[1] : '';
+        const pkgName = isBundle ? packageName : selectedSkills[0]?.name || '';
+        const url = author && pkgName
+          ? `https://skillvault.md/packages/${author}/${pkgName}`
+          : 'https://skillvault.md/packages';
+        await open(url);
       } catch {
         // ignore
       }

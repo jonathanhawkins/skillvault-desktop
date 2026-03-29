@@ -119,6 +119,7 @@ pub struct LocalState {
 #[derive(Debug, Default)]
 pub struct AppState {
     pub auth_token: Option<String>,
+    pub username: Option<String>,
     pub local_state: Option<LocalState>,
     pub codex_plugins_cache: Option<Vec<MarketplacePlugin>>,
 }

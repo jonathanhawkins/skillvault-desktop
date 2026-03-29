@@ -15,6 +15,7 @@ import { renderFileDetail } from './views/file-detail';
 import { renderPlugins } from './views/plugins';
 import { renderPluginDetail } from './views/plugin-detail';
 import { renderPublish } from './views/publish';
+import { renderEditPackage } from './views/edit-package';
 
 // Register all views
 registerView('installed', renderInstalled);
@@ -28,13 +29,14 @@ registerView('file-detail', renderFileDetail);
 registerView('plugins', renderPlugins);
 registerView('plugin-detail', renderPluginDetail);
 registerView('publish', renderPublish);
+registerView('edit-package', renderEditPackage);
 
 // Initialize app
 async function init() {
   // Check auth status
   try {
     const auth = await getAuthStatus();
-    setState({ authenticated: auth.authenticated });
+    setState({ authenticated: auth.authenticated, username: auth.username ?? null });
   } catch {
     // Not authenticated
   }

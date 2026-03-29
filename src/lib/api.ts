@@ -97,6 +97,22 @@ export async function uninstallPlugin(pluginName: string, pluginSource: string):
   return invoke('uninstall_plugin', { pluginName, pluginSource });
 }
 
+export async function updatePackage(
+  author: string,
+  name: string,
+  updates: Record<string, unknown>
+): Promise<void> {
+  return invoke('update_package', { author, name, updates });
+}
+
+export async function deletePackage(author: string, name: string): Promise<void> {
+  return invoke('delete_package', { author, name });
+}
+
+export async function getMyPackages(): Promise<Package[]> {
+  return invoke('get_my_packages');
+}
+
 export async function packageSkill(skillName: string): Promise<PackagedSkill> {
   return invoke('package_skill', { skillName });
 }

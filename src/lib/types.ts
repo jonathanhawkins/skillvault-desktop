@@ -159,6 +159,7 @@ export interface UpdateInfo {
 
 export interface AuthStatus {
   authenticated: boolean;
+  username: string | null;
 }
 
 export interface SkillDetail {
@@ -218,4 +219,4 @@ export interface PackagedSkill {
   skill_names: string[];
 }
 
-export type ViewName = 'installed' | 'browse' | 'recent' | 'trending' | 'detail' | 'skill-detail' | 'file-detail' | 'settings' | 'plugins' | 'plugin-detail' | 'publish';
+export type ViewName = 'installed' | 'browse' | 'recent' | 'trending' | 'detail' | 'skill-detail' | 'file-detail' | 'settings' | 'plugins' | 'plugin-detail' | 'publish' | 'edit-package';

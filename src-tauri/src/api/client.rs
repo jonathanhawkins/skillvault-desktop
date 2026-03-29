@@ -60,7 +60,7 @@ impl ApiClient {
     }
 
     pub async fn get_package(&self, author: &str, name: &str) -> Result<Package, String> {
-        let url = format!("{}/api/packages/{}/{}", BASE_URL, author, name);
+        let url = format!("{}/api/packages/{}/{}", BASE_URL, urlencoded(author), urlencoded(name));
 
         let resp = self
             .client
@@ -147,9 +147,10 @@ impl ApiClient {
         let body: serde_json::Value = resp.json().await
             .map_err(|e| format!("Failed to parse user info: {}", e))?;
 
-        body.get("id")
-            .or_else(|| body.get("username"))
-            .or_else(|| body.get("github_username"))
+        body.get("user")
+            .and_then(|u| u.get("githubUsername"))
+            .filter(|v| !v.is_null())
+            .or_else(|| body.get("author").and_then(|a| a.get("id")).filter(|v| !v.is_null()))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .ok_or_else(|| "Could not determine username from API response".to_string())
@@ -205,7 +206,7 @@ impl ApiClient {
         version: &str,
         zip_bytes: Vec<u8>,
     ) -> Result<(), String> {
-        let url = format!("{}/api/packages/{}/{}/upload", BASE_URL, author, name);
+        let url = format!("{}/api/packages/{}/{}/upload", BASE_URL, urlencoded(author), urlencoded(name));
 
         let token = self
             .token
@@ -239,8 +240,96 @@ impl ApiClient {
         Ok(())
     }
 
+    /// Update package metadata via PATCH
+    pub async fn update_package(
+        &self,
+        author: &str,
+        name: &str,
+        updates: serde_json::Value,
+    ) -> Result<(), String> {
+        let url = format!("{}/api/packages/{}/{}", BASE_URL, urlencoded(author), urlencoded(name));
+        let token = self
+            .token
+            .as_ref()
+            .ok_or("Not authenticated — add your API token in Settings")?;
+
+        let resp = self
+            .client
+            .patch(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&updates)
+            .send()
+            .await
+            .map_err(|e| format!("Update request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Update failed ({}): {}", status, text));
+        }
+
+        Ok(())
+    }
+
+    /// Unpublish (soft delete) a package via DELETE
+    pub async fn delete_package(&self, author: &str, name: &str) -> Result<(), String> {
+        let url = format!("{}/api/packages/{}/{}", BASE_URL, urlencoded(author), urlencoded(name));
+        let token = self
+            .token
+            .as_ref()
+            .ok_or("Not authenticated — add your API token in Settings")?;
+
+        let resp = self
+            .client
+            .delete(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| format!("Delete request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Unpublish failed ({}): {}", status, text));
+        }
+
+        Ok(())
+    }
+
+    /// Get packages published by a specific author
+    pub async fn get_author_packages(&self, username: &str) -> Result<Vec<Package>, String> {
+        let url = format!("{}/api/authors/{}", BASE_URL, urlencoded(username));
+
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            if status.as_u16() == 404 {
+                // Author not found — no packages yet
+                return Ok(vec![]);
+            }
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Failed to get author packages ({}): {}", status, text));
+        }
+
+        let mut body: serde_json::Value = resp.json().await
+            .map_err(|e| format!("Failed to parse author response: {}", e))?;
+
+        let packages = body.as_object_mut()
+            .and_then(|m| m.remove("packages"))
+            .and_then(|v| serde_json::from_value::<Vec<Package>>(v).ok())
+            .unwrap_or_default();
+
+        Ok(packages)
+    }
+
     pub async fn download_package(&self, author: &str, name: &str) -> Result<Vec<u8>, String> {
-        let url = format!("{}/api/packages/{}/{}/download", BASE_URL, author, name);
+        let url = format!("{}/api/packages/{}/{}/download", BASE_URL, urlencoded(author), urlencoded(name));
 
         let mut req = self.client.get(&url);
         if let Some(token) = &self.token {

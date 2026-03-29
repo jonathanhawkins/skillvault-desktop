@@ -1,9 +1,10 @@
 import { getState, setState } from '../lib/state';
-import { scanLocal, uninstallSkill } from '../lib/api';
+import { scanLocal, uninstallSkill, getMyPackages, deletePackage } from '../lib/api';
 import { showToast } from '../components/toast';
 import { renderSidebar } from '../components/sidebar';
 import { navigate } from '../lib/router';
 import { esc, formatBytes } from '../lib/utils';
+import type { Package } from '../lib/types';
 
 export async function renderInstalled() {
   const content = document.getElementById('content');
@@ -35,7 +36,7 @@ export async function renderInstalled() {
           </div>
         </div>
         <div class="empty-state">
-          <div class="empty-state-text">Failed to scan: ${e?.toString() || 'Unknown error'}</div>
+          <div class="empty-state-text">Failed to scan: ${esc(e?.toString() || 'Unknown error')}</div>
           <button class="btn btn--sm" id="retry-btn">Retry</button>
         </div>
       `;
@@ -212,6 +213,44 @@ export async function renderInstalled() {
       </div>`
     : '';
 
+  // Fetch published packages if authenticated
+  let publishedHtml = '';
+  let publishedPackages: Package[] = [];
+  if (state.authenticated) {
+    try {
+      publishedPackages = await getMyPackages();
+      if (publishedPackages.length > 0) {
+        publishedHtml = `
+          <div class="installed-section" style="margin-bottom:24px">
+            <div class="installed-section-header">
+              <span class="installed-section-label">Published by You</span>
+              <span class="installed-section-count">${publishedPackages.length}</span>
+            </div>
+            <div class="grid">${publishedPackages.map(pkg => `
+              <div class="skill-card skill-card--clickable" data-pub-author="${esc(pkg.author_id)}" data-pub-name="${esc(pkg.name)}">
+                <div class="skill-card-header">
+                  <div class="skill-card-name">${esc(pkg.display_name || pkg.name)}</div>
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <span class="skill-card-source skill-card-source--skillvault">v${esc(pkg.current_version)}</span>
+                    <button class="skill-card-delete" data-unpub-author="${esc(pkg.author_id)}" data-unpub-name="${esc(pkg.name)}" data-unpub-display="${esc(pkg.display_name || pkg.name)}" title="Unpublish" aria-label="Unpublish ${esc(pkg.name)}">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                  </div>
+                </div>
+                ${pkg.tagline ? `<div class="skill-card-desc">${esc(pkg.tagline)}</div>` : ''}
+                <div class="skill-card-meta">
+                  <span>${esc(pkg.category)}</span>
+                  <span>${pkg.download_count} downloads</span>
+                </div>
+              </div>
+            `).join('')}</div>
+          </div>`;
+      }
+    } catch {
+      // Silently skip if fetch fails
+    }
+  }
+
   const hasCodexContent = ls.codex_config || ls.codex_rules.length > 0 || ls.codex_skills.length > 0 || ls.codex_agents.length > 0;
 
   const codexSeparatorHtml = hasCodexContent
@@ -316,6 +355,7 @@ export async function renderInstalled() {
     </div>
     <div id="claude-sections">
       <div style="margin-bottom:16px;font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-faint);letter-spacing:0.5px">CLAUDE CODE</div>
+      ${publishedHtml}
       <div class="installed-section">
         <div class="installed-section-header">
           <span class="installed-section-label">Global Skills</span>
@@ -413,6 +453,51 @@ export async function renderInstalled() {
         });
       });
       parent.querySelector('[data-cancel-delete]')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        parent.innerHTML = original;
+      });
+    });
+  });
+
+  // Click published package cards to view detail
+  content.querySelectorAll('[data-pub-author]').forEach((card) => {
+    card.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('.skill-card-delete')) return;
+      const el = card as HTMLElement;
+      const author = el.dataset.pubAuthor!;
+      const name = el.dataset.pubName!;
+      setState({ selectedAuthor: author, selectedName: name, selectedPackage: null });
+      navigate('detail');
+    });
+  });
+
+  // Unpublish buttons on published packages
+  content.querySelectorAll('[data-unpub-name]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const el = btn as HTMLElement;
+      const author = el.dataset.unpubAuthor!;
+      const name = el.dataset.unpubName!;
+      const display = el.dataset.unpubDisplay || name;
+
+      const parent = btn.parentElement;
+      if (!parent) return;
+      const original = parent.innerHTML;
+      parent.innerHTML = `
+        <span style="font-family:'Geist Mono',monospace;font-size:10px;color:var(--error)">Unpublish?</span>
+        <button class="btn btn--sm btn--danger" data-confirm-unpub style="padding:3px 8px;font-size:9px">Yes</button>
+        <button class="btn btn--sm" data-cancel-unpub style="padding:3px 8px;font-size:9px">No</button>
+      `;
+      parent.querySelector('[data-confirm-unpub]')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        deletePackage(author, name).then(() => {
+          showToast(`Unpublished "${display}"`, 'success');
+          renderInstalled();
+        }).catch((err) => {
+          showToast(`Failed: ${err}`, 'error');
+        });
+      });
+      parent.querySelector('[data-cancel-unpub]')?.addEventListener('click', (ev) => {
         ev.stopPropagation();
         parent.innerHTML = original;
       });

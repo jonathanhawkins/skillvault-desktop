@@ -149,6 +149,7 @@ pub async fn set_auth_token(token: String, state: tauri::State<'_, Arc<Mutex<App
     // Update app state
     let mut app = state.lock().await;
     app.auth_token = Some(token);
+    app.username = None;
 
     Ok(())
 }
@@ -164,9 +165,33 @@ pub async fn get_auth_status(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> R
         }
     }
 
+    // Return cached username if available
+    if let Some(ref cached) = app.username {
+        let username = Some(cached.clone());
+        return Ok(AuthStatus {
+            authenticated: username.is_some(),
+            username,
+        });
+    }
+
     let has_token = app.auth_token.is_some();
+    let username = if has_token {
+        let client = ApiClient::new(app.auth_token.clone());
+        drop(app); // Release lock before async call
+        let resolved = client.get_me().await.ok();
+        // Cache the resolved username
+        if let Some(ref name) = resolved {
+            let mut app = state.lock().await;
+            app.username = Some(name.clone());
+        }
+        resolved
+    } else {
+        None
+    };
+
     Ok(AuthStatus {
-        authenticated: has_token,
+        authenticated: username.is_some(),
+        username,
     })
 }
 
@@ -178,6 +203,7 @@ pub async fn clear_auth_token(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> 
     // Clear from app state
     let mut app = state.lock().await;
     app.auth_token = None;
+    app.username = None;
 
     Ok(())
 }
@@ -503,19 +529,22 @@ pub async fn publish_skill(
     let client = ApiClient::new(Some(token.clone()));
     let username = client.get_me().await?;
 
-    // 4. Create package metadata via API
+    // 4. Create package metadata via API (409 = already exists, that's OK)
     client
         .create_package(&skill_name, &display_name, &tagline, &category)
         .await?;
 
     // 5. Upload the zip with version
-    client
-        .upload_version(&username, &skill_name, &version, zip_bytes)
-        .await?;
+    if let Err(e) = client.upload_version(&username, &skill_name, &version, zip_bytes).await {
+        return Err(format!(
+            "Package metadata created but upload failed: {}. Try publishing again with a new version.",
+            e
+        ));
+    }
 
     Ok(format!(
         "Published {}/{} v{} to skillvault.md",
-        username, display_name, version
+        username, skill_name, version
     ))
 }
 
@@ -538,17 +567,15 @@ pub async fn package_skills(
     for (i, name) in skill_names.iter().enumerate() {
         validate_name(name, "Skill name")?;
 
-        if !skill_paths[i].is_empty() {
-            let p = std::path::Path::new(&skill_paths[i]);
-            if !p.starts_with(&home) {
-                return Err(format!("Skill path must be under home directory: {}", skill_paths[i]));
-            }
-        }
-
         let dir = if skill_paths[i].is_empty() {
             home.join(".claude").join("skills").join(name)
         } else {
-            std::path::PathBuf::from(&skill_paths[i])
+            let canonical = std::fs::canonicalize(std::path::Path::new(&skill_paths[i]))
+                .map_err(|e| format!("Invalid skill path {}: {}", skill_paths[i], e))?;
+            if !canonical.starts_with(&home) {
+                return Err(format!("Skill path must be under home directory: {}", skill_paths[i]));
+            }
+            canonical
         };
 
         if !dir.exists() || !dir.is_dir() {
@@ -675,20 +702,98 @@ pub async fn publish_skills(
     let client = ApiClient::new(Some(token.clone()));
     let username = client.get_me().await?;
 
-    // 4. Create package metadata via API
+    // 4. Create package metadata via API (409 = already exists, that's OK)
     client
         .create_package(&package_name, &display_name, &tagline, &category)
         .await?;
 
     // 5. Upload the zip with version
-    client
-        .upload_version(&username, &package_name, &version, zip_bytes)
-        .await?;
+    if let Err(e) = client.upload_version(&username, &package_name, &version, zip_bytes).await {
+        return Err(format!(
+            "Package metadata created but upload failed: {}. Try publishing again with a new version.",
+            e
+        ));
+    }
 
     Ok(format!(
         "Published {}/{} v{} to skillvault.md",
-        username, display_name, version
+        username, package_name, version
     ))
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct PackageUpdates {
+    pub display_name: Option<String>,
+    pub tagline: Option<String>,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    pub license: Option<String>,
+    pub repo_url: Option<String>,
+    pub homepage_url: Option<String>,
+    pub compat_claude_code: Option<i32>,
+    pub compat_cursor: Option<i32>,
+    pub compat_codex: Option<i32>,
+    pub compat_copilot: Option<i32>,
+    pub compat_gemini: Option<i32>,
+}
+
+#[tauri::command]
+pub async fn update_package(
+    author: String,
+    name: String,
+    updates: PackageUpdates,
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), String> {
+    let token = {
+        let app = state.lock().await;
+        app.auth_token.clone()
+    };
+    let token = token.ok_or("Not authenticated — add your API token in Settings first")?;
+
+    let json_updates = serde_json::to_value(&updates)
+        .map_err(|e| format!("Failed to serialize updates: {}", e))?;
+
+    let client = ApiClient::new(Some(token));
+    client.update_package(&author, &name, json_updates).await
+}
+
+#[tauri::command]
+pub async fn delete_package(
+    author: String,
+    name: String,
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), String> {
+    let token = {
+        let app = state.lock().await;
+        app.auth_token.clone()
+    };
+    let token = token.ok_or("Not authenticated — add your API token in Settings first")?;
+
+    let client = ApiClient::new(Some(token));
+    client.delete_package(&author, &name).await
+}
+
+#[tauri::command]
+pub async fn get_my_packages(
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) -> Result<Vec<Package>, String> {
+    let (token, cached_username) = {
+        let app = state.lock().await;
+        (app.auth_token.clone(), app.username.clone())
+    };
+    let token = token.ok_or("Not authenticated — add your API token in Settings first")?;
+
+    let client = ApiClient::new(Some(token));
+    let username = match cached_username {
+        Some(u) => u,
+        None => {
+            let resolved = client.get_me().await?;
+            let mut app = state.lock().await;
+            app.username = Some(resolved.clone());
+            resolved
+        }
+    };
+    client.get_author_packages(&username).await
 }
 
 #[derive(serde::Serialize)]
@@ -702,6 +807,7 @@ pub struct UpdateInfo {
 #[derive(serde::Serialize)]
 pub struct AuthStatus {
     pub authenticated: bool,
+    pub username: Option<String>,
 }
 
 #[tauri::command]
