@@ -1,3 +1,18 @@
+# Required GitHub Secrets for Apple code signing and notarization:
+#
+# 1. Export your Developer ID Application certificate from Keychain Access as .p12
+# 2. Base64 encode it: base64 -i certificate.p12 | pbcopy
+# 3. Set these secrets in GitHub repo Settings → Secrets:
+#    - APPLE_CERTIFICATE: the base64 string
+#    - APPLE_CERTIFICATE_PASSWORD: the .p12 password
+#    - APPLE_SIGNING_IDENTITY: "Developer ID Application: Your Name (TEAMID)"
+#    - APPLE_ID: your Apple ID email
+#    - APPLE_PASSWORD: app-specific password (appleid.apple.com → Sign-In → App-Specific Passwords)
+#    - APPLE_TEAM_ID: your 10-character team ID
+#
+# Code signing is optional — builds will succeed without these secrets (unsigned),
+# which allows forks and PRs to build without Apple credentials.
+
 name: Release
 
 on:
@@ -37,6 +52,12 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'SkillVault Desktop ${{ github.ref_name }}'
