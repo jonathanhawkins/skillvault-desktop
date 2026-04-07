@@ -2,6 +2,7 @@ import { getState, setState } from '../lib/state';
 import { setAuthToken, clearAuthToken, getAuthStatus } from '../lib/api';
 import { showToast } from '../components/toast';
 import { renderSidebar } from '../components/sidebar';
+import { getVersion } from '@tauri-apps/api/app';
 
 export async function renderSettings() {
   const content = document.getElementById('content');
@@ -118,7 +119,7 @@ export async function renderSettings() {
     <div class="settings-section">
       <h2 class="h2" style="margin-bottom:16px">About</h2>
       <div style="font-size:13px;color:var(--text-secondary);line-height:22px">
-        <p><strong style="color:var(--text-primary)">SkillVault Desktop</strong> v0.1.0</p>
+        <p><strong style="color:var(--text-primary)">SkillVault Desktop</strong> <span id="app-version">v...</span></p>
         <p style="margin-top:4px">The mod manager for AI coding skills.</p>
         <p style="margin-top:8px;color:var(--text-muted)">
           Open source &mdash; MIT License
@@ -126,6 +127,12 @@ export async function renderSettings() {
       </div>
     </div>
   `;
+
+  // Populate version from Tauri config
+  getVersion().then(v => {
+    const el = document.getElementById('app-version');
+    if (el) el.textContent = `v${v}`;
+  }).catch(() => {});
 
   const openInBrowser = async (url: string) => {
     try {
