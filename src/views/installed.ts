@@ -75,6 +75,7 @@ export async function renderInstalled() {
         ${skill.has_scripts ? '<span>scripts</span>' : ''}
         ${skill.has_subagents ? '<span>subagents</span>' : ''}
         ${skill.has_references ? '<span>references</span>' : ''}
+        ${skill.has_statusline ? '<span>statusline</span>' : ''}
         ${skill.installed_version ? `<span>v${esc(skill.installed_version)}</span>` : ''}
       </div>
     </div>`;

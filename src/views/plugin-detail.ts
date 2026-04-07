@@ -371,7 +371,7 @@ function simpleMarkdown(text: string, baseUrl?: string): string {
       i++;
     }
     if (paraLines.length > 0) {
-      html.push(`<p style="margin:8px 0;line-height:1.6;color:var(--text-secondary)">${inlineMd(paraLines.join('\n').replace(/\n/g, '<br>'))}</p>`);
+      html.push(`<p style="margin:8px 0;line-height:1.6;color:var(--text-secondary)">${paraLines.map(l => inlineMd(l)).join('<br>')}</p>`);
     }
   }
 
@@ -379,9 +379,18 @@ function simpleMarkdown(text: string, baseUrl?: string): string {
 }
 
 function inlineMd(text: string): string {
-  return text
+  // Protect inline code spans, then escape HTML, then apply formatting
+  const codeSpans: string[] = [];
+  let s = text.replace(/`([^`]+)`/g, (_m, code) => {
+    const idx = codeSpans.length;
+    codeSpans.push(`<code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-family:'Geist Mono',monospace;font-size:0.9em">${esc(code)}</code>`);
+    return `\x00CODE${idx}\x00`;
+  });
+  s = esc(s);
+  s = s
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent)">$1</a>')
     .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text-primary)">$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`([^`]+)`/g, '<code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-family:\'Geist Mono\',monospace;font-size:0.9em">$1</code>');
+    .replace(/\*(.+?)\*/g, '<em>$1</em>');
+  s = s.replace(/\x00CODE(\d+)\x00/g, (_m, idx) => codeSpans[parseInt(idx)]);
+  return s;
 }

@@ -9,6 +9,7 @@ pub struct LocalSkill {
     pub has_scripts: bool,
     pub has_subagents: bool,
     pub has_references: bool,
+    pub has_statusline: bool,
     pub source: SkillSource,
     pub package_id: Option<String>,
     pub installed_version: Option<String>,

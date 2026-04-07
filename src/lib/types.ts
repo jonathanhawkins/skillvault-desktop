@@ -22,6 +22,7 @@ export interface LocalSkill {
   has_scripts: boolean;
   has_subagents: boolean;
   has_references: boolean;
+  has_statusline: boolean;
   source: 'skillvault' | 'local';
   package_id: string | null;
   installed_version: string | null;

@@ -11,6 +11,7 @@ pub mod codex;
 mod tests;
 
 use crate::state::LocalState;
+use std::collections::HashSet;
 
 /// Scan ~/.claude/ and return the full local state
 pub fn scan_all() -> Result<LocalState, String> {
@@ -42,6 +43,11 @@ pub fn scan_all() -> Result<LocalState, String> {
             }
         }
     }
+
+    // Computer-wide skill discovery via Spotlight (mdfind)
+    let already_scanned: HashSet<String> = all_skills.iter().map(|s| s.path.clone()).collect();
+    let mut discovered = skills::discover_skills_system_wide(&already_scanned);
+    all_skills.append(&mut discovered);
 
     let agents = agents::scan_agents(&claude_dir).unwrap_or_default();
     let hooks = hooks::scan_hooks(&claude_dir).unwrap_or_default();

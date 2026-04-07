@@ -125,7 +125,7 @@ export async function renderSkillDetail() {
     content.innerHTML = `
       <div class="detail-back" id="back-btn">Back</div>
       <div class="empty-state">
-        <div class="empty-state-text">Failed to load skill: ${e?.toString()}</div>
+        <div class="empty-state-text">Failed to load skill: ${esc(e?.toString() || 'Unknown error')}</div>
       </div>
     `;
     content.querySelector('#back-btn')?.addEventListener('click', () => navigate('installed'));
@@ -196,12 +196,20 @@ function simpleMarkdown(text: string): string {
       continue;
     }
 
-    // Unordered list
+    // Unordered list (with continuation lines)
     if (/^\s*[-*+]\s+/.test(line)) {
       const listItems: string[] = [];
-      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-        listItems.push(lines[i].replace(/^\s*[-*+]\s+/, ''));
-        i++;
+      while (i < lines.length) {
+        if (/^\s*[-*+]\s+/.test(lines[i])) {
+          listItems.push(lines[i].replace(/^\s*[-*+]\s+/, ''));
+          i++;
+        } else if (lines[i].trim() !== '' && /^\s{2,}/.test(lines[i]) && listItems.length > 0) {
+          // Continuation line (indented, non-empty) — append to last item
+          listItems[listItems.length - 1] += ' ' + lines[i].trim();
+          i++;
+        } else {
+          break;
+        }
       }
       html.push(
         `<ul style="margin:8px 0;padding-left:24px;color:var(--text-secondary)">${listItems.map((li) => `<li style="margin:4px 0;line-height:1.5">${inlineMarkdown(li)}</li>`).join('')}</ul>`
@@ -209,12 +217,20 @@ function simpleMarkdown(text: string): string {
       continue;
     }
 
-    // Ordered list
+    // Ordered list (with continuation lines)
     if (/^\s*\d+[.)]\s+/.test(line)) {
       const listItems: string[] = [];
-      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
-        listItems.push(lines[i].replace(/^\s*\d+[.)]\s+/, ''));
-        i++;
+      while (i < lines.length) {
+        if (/^\s*\d+[.)]\s+/.test(lines[i])) {
+          listItems.push(lines[i].replace(/^\s*\d+[.)]\s+/, ''));
+          i++;
+        } else if (lines[i].trim() !== '' && /^\s{2,}/.test(lines[i]) && listItems.length > 0) {
+          // Continuation line (indented, non-empty) — append to last item
+          listItems[listItems.length - 1] += ' ' + lines[i].trim();
+          i++;
+        } else {
+          break;
+        }
       }
       html.push(
         `<ol style="margin:8px 0;padding-left:24px;color:var(--text-secondary)">${listItems.map((li) => `<li style="margin:4px 0;line-height:1.5">${inlineMarkdown(li)}</li>`).join('')}</ol>`
@@ -252,7 +268,7 @@ function simpleMarkdown(text: string): string {
     }
     if (paraLines.length > 0) {
       html.push(
-        `<p style="margin:8px 0;line-height:1.6;color:var(--text-secondary)">${inlineMarkdown(paraLines.join('\n').replace(/\n/g, '<br>'))}</p>`
+        `<p style="margin:8px 0;line-height:1.6;color:var(--text-secondary)">${paraLines.map((l) => inlineMarkdown(l)).join('<br>')}</p>`
       );
     }
   }
@@ -261,12 +277,29 @@ function simpleMarkdown(text: string): string {
 }
 
 function inlineMarkdown(text: string): string {
-  return text
+  // Escape HTML first, then apply markdown formatting
+  // Protect inline code spans by extracting them before escaping
+  const codeSpans: string[] = [];
+  let escaped = text.replace(/`([^`]+)`/g, (_match, code) => {
+    const idx = codeSpans.length;
+    codeSpans.push(`<code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-family:'Geist Mono',monospace;font-size:0.9em">${esc(code)}</code>`);
+    return `\x00CODE${idx}\x00`;
+  });
+
+  // Escape HTML in the remaining text
+  escaped = esc(escaped);
+
+  // Apply markdown formatting on escaped text
+  escaped = escaped
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;height:auto;vertical-align:middle">')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">$1</a>')
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong style="color:var(--text-primary)"><em>$1</em></strong>')
     .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text-primary)">$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/~~(.+?)~~/g, '<del>$1</del>')
-    .replace(/`([^`]+)`/g, '<code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-family:\'Geist Mono\',monospace;font-size:0.9em">$1</code>');
+    .replace(/~~(.+?)~~/g, '<del>$1</del>');
+
+  // Restore code spans
+  escaped = escaped.replace(/\x00CODE(\d+)\x00/g, (_m, idx) => codeSpans[parseInt(idx)]);
+
+  return escaped;
 }

@@ -30,15 +30,15 @@ export async function renderDetail() {
       setState({ selectedPackage: pkg });
     }
 
-    // Check if already installed — match by package_id or by skill names present locally
+    // Check if already installed — match by package_id, skill_names, or directory name
     let installed = state.localState?.skills.find(
       (s) => s.package_id === `${pkg!.author_id}/${pkg!.name}`
     );
 
-    // For bundles or local skills, match by skill_names
     type MatchedSkill = { name: string; location: string; path: string };
     let matchedSkills: MatchedSkill[] = [];
 
+    // For bundles or marketplace installs, match by skill_names from package metadata
     if ((pkg as any).skill_names) {
       try {
         const skillNames: string[] = typeof (pkg as any).skill_names === 'string'
@@ -61,6 +61,22 @@ export async function renderDetail() {
         }
       } catch {
         // ignore parse errors
+      }
+    }
+
+    // Fallback: match by package name against local skill directory names
+    // Catches locally-authored skills that were published but never "installed" from marketplace
+    if (!installed && state.localState?.skills) {
+      const nameMatches = state.localState.skills.filter(s => s.name === pkg!.name);
+      if (nameMatches.length > 0) {
+        installed = nameMatches[0];
+        for (const f of nameMatches) {
+          matchedSkills.push({
+            name: f.name,
+            location: f.project || 'Global',
+            path: f.path,
+          });
+        }
       }
     }
 
@@ -475,7 +491,7 @@ function simpleMarkdown(text: string): string {
     }
     if (paraLines.length > 0) {
       html.push(
-        `<p style="margin:8px 0;line-height:1.6;color:var(--text-secondary)">${inlineMarkdown(paraLines.join('\n').replace(/\n/g, '<br>'))}</p>`
+        `<p style="margin:8px 0;line-height:1.6;color:var(--text-secondary)">${paraLines.map((l) => inlineMarkdown(l)).join('<br>')}</p>`
       );
     }
   }

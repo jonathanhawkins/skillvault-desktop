@@ -576,8 +576,8 @@ async function renderPublishingStep(
         const author = match ? match[1] : '';
         const pkgName = isBundle ? packageName : selectedSkills[0]?.name || '';
         const url = author && pkgName
-          ? `https://skillvault.md/packages/${author}/${pkgName}`
-          : 'https://skillvault.md/packages';
+          ? `https://skillvault.md/${author}/${pkgName}`
+          : 'https://skillvault.md/search';
         await open(url);
       } catch {
         // ignore

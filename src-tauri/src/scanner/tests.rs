@@ -1,10 +1,11 @@
-use super::skills::{count_files, parse_skill_description, scan_skills};
+use super::skills::{count_files, discover_skills_system_wide, parse_skill_description, scan_skills, scan_skills_dir};
 use super::agents::scan_agents;
 use super::hooks::scan_hooks;
 use super::plugins::scan_plugins;
 use super::mcp::scan_mcp_servers;
 use super::teams::scan_teams;
 use super::rules::{scan_rules, decode_project_path_pub};
+use std::collections::HashSet;
 use std::fs;
 
 fn make_temp_dir(prefix: &str) -> std::path::PathBuf {
@@ -620,4 +621,262 @@ fn test_scan_rules_with_projects_dir_empty() {
     let result = scan_rules(&dir).unwrap();
     assert!(result.is_empty());
     cleanup(&dir);
+}
+
+// =====================================================================
+// Computer-wide skill discovery tests
+// =====================================================================
+
+#[test]
+fn test_scan_skills_dir_finds_all_local_skills() {
+    let dir = make_temp_dir("skills_all_local");
+    let skills_dir = dir.join("skills");
+
+    // Create 5 local skills (no .skillvault-meta.json)
+    for name in &["alpha", "beta", "gamma", "delta", "epsilon"] {
+        let skill = skills_dir.join(name);
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(
+            skill.join("SKILL.md"),
+            format!("---\nname: {}\ndescription: \"Skill {}\"\n---\n", name, name),
+        )
+        .unwrap();
+    }
+
+    let result = scan_skills_dir(&skills_dir, None);
+    assert_eq!(result.len(), 5, "Should find all 5 skills in the directory");
+
+    // All should be source=local since no .skillvault-meta.json
+    for skill in &result {
+        assert!(
+            matches!(skill.source, crate::state::SkillSource::Local),
+            "Skill {} should be source=local",
+            skill.name
+        );
+        assert!(skill.project.is_none(), "Global skills should have project=None");
+    }
+
+    // Should be sorted alphabetically
+    let names: Vec<&str> = result.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, vec!["alpha", "beta", "delta", "epsilon", "gamma"]);
+    cleanup(&dir);
+}
+
+#[test]
+fn test_scan_skills_dir_skips_hidden_dirs() {
+    let dir = make_temp_dir("skills_hidden");
+    let skills_dir = dir.join("skills");
+
+    // Create a visible skill
+    let visible = skills_dir.join("visible-skill");
+    fs::create_dir_all(&visible).unwrap();
+    fs::write(visible.join("SKILL.md"), "---\ndescription: visible\n---\n").unwrap();
+
+    // Create hidden dirs that should be skipped
+    let hidden = skills_dir.join(".hidden-skill");
+    fs::create_dir_all(&hidden).unwrap();
+    fs::write(hidden.join("SKILL.md"), "---\ndescription: hidden\n---\n").unwrap();
+
+    let trash = skills_dir.join(".trash");
+    fs::create_dir_all(&trash).unwrap();
+    fs::write(trash.join("SKILL.md"), "---\ndescription: trash\n---\n").unwrap();
+
+    let result = scan_skills_dir(&skills_dir, None);
+    assert_eq!(result.len(), 1, "Should only find the visible skill");
+    assert_eq!(result[0].name, "visible-skill");
+    cleanup(&dir);
+}
+
+#[test]
+fn test_scan_skills_dir_with_project_name() {
+    let dir = make_temp_dir("skills_project");
+    let skills_dir = dir.join("skills");
+
+    let skill = skills_dir.join("my-tool");
+    fs::create_dir_all(&skill).unwrap();
+    fs::write(skill.join("SKILL.md"), "---\ndescription: \"project skill\"\n---\n").unwrap();
+
+    let result = scan_skills_dir(&skills_dir, Some("my-project"));
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].project, Some("my-project".to_string()));
+    cleanup(&dir);
+}
+
+#[test]
+fn test_scan_skills_dir_distinguishes_local_vs_skillvault() {
+    let dir = make_temp_dir("skills_source");
+    let skills_dir = dir.join("skills");
+
+    // Local skill (no meta)
+    let local_skill = skills_dir.join("local-one");
+    fs::create_dir_all(&local_skill).unwrap();
+    fs::write(local_skill.join("SKILL.md"), "---\ndescription: local\n---\n").unwrap();
+
+    // SkillVault skill (has meta)
+    let sv_skill = skills_dir.join("sv-one");
+    fs::create_dir_all(&sv_skill).unwrap();
+    fs::write(sv_skill.join("SKILL.md"), "---\ndescription: from vault\n---\n").unwrap();
+    fs::write(
+        sv_skill.join(".skillvault-meta.json"),
+        r#"{"source":"skillvault","package_id":"pkg123","version":"1.0.0","installed_at":"2026-01-01","auto_update":false}"#,
+    )
+    .unwrap();
+
+    let result = scan_skills_dir(&skills_dir, None);
+    assert_eq!(result.len(), 2);
+
+    let local = result.iter().find(|s| s.name == "local-one").unwrap();
+    assert!(matches!(local.source, crate::state::SkillSource::Local));
+    assert!(local.package_id.is_none());
+
+    let sv = result.iter().find(|s| s.name == "sv-one").unwrap();
+    assert!(matches!(sv.source, crate::state::SkillSource::Skillvault));
+    assert_eq!(sv.package_id, Some("pkg123".to_string()));
+    assert_eq!(sv.installed_version, Some("1.0.0".to_string()));
+    cleanup(&dir);
+}
+
+#[test]
+fn test_discover_skills_deduplicates_already_scanned() {
+    // discover_skills_system_wide uses mdfind which is system-dependent,
+    // but we can test the dedup logic by checking that known paths are skipped.
+    // This test verifies the HashSet exclusion works.
+    let mut already_scanned = HashSet::new();
+    already_scanned.insert("/Users/bone/.claude/skills/team".to_string());
+    already_scanned.insert("/Users/bone/.claude/skills/br".to_string());
+
+    // Call discover — it will run mdfind and should not include already_scanned paths
+    let discovered = discover_skills_system_wide(&already_scanned);
+
+    for skill in &discovered {
+        assert!(
+            !already_scanned.contains(&skill.path),
+            "Discovered skill {} at {} should not duplicate already-scanned paths",
+            skill.name,
+            skill.path
+        );
+    }
+}
+
+#[test]
+fn test_discover_skills_excludes_noise_paths() {
+    // Run the real discovery and verify noise paths are filtered out
+    let discovered = discover_skills_system_wide(&HashSet::new());
+
+    for skill in &discovered {
+        assert!(
+            !skill.path.contains("/plugins/cache/"),
+            "Should exclude plugin cache paths: {}",
+            skill.path
+        );
+        assert!(
+            !skill.path.contains("/plugins/marketplaces/"),
+            "Should exclude plugin marketplace paths: {}",
+            skill.path
+        );
+        assert!(
+            !skill.path.contains("/local-agent-mode-sessions/"),
+            "Should exclude agent session paths: {}",
+            skill.path
+        );
+        assert!(
+            !skill.path.contains("/node_modules/"),
+            "Should exclude node_modules: {}",
+            skill.path
+        );
+        assert!(
+            !skill.path.contains("claude-worktrees-agent"),
+            "Should exclude worktree paths: {}",
+            skill.path
+        );
+    }
+}
+
+#[test]
+fn test_scan_skills_detects_statusline_sh() {
+    let dir = make_temp_dir("skills_statusline_sh");
+    let skills_dir = dir.join("skills");
+
+    // Skill with a statusline.sh
+    let skill = skills_dir.join("my-status");
+    fs::create_dir_all(&skill).unwrap();
+    fs::write(skill.join("SKILL.md"), "---\ndescription: has statusline\n---\n").unwrap();
+    fs::write(skill.join("statusline.sh"), "#!/bin/bash\necho ok").unwrap();
+
+    // Skill without statusline
+    let plain = skills_dir.join("plain-skill");
+    fs::create_dir_all(&plain).unwrap();
+    fs::write(plain.join("SKILL.md"), "---\ndescription: no statusline\n---\n").unwrap();
+
+    let result = scan_skills_dir(&skills_dir, None);
+    assert_eq!(result.len(), 2);
+
+    let status_skill = result.iter().find(|s| s.name == "my-status").unwrap();
+    assert!(status_skill.has_statusline, "Should detect statusline.sh");
+
+    let plain_skill = result.iter().find(|s| s.name == "plain-skill").unwrap();
+    assert!(!plain_skill.has_statusline, "Should not detect statusline without file");
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_scan_skills_detects_statusline_py_and_dir() {
+    let dir = make_temp_dir("skills_statusline_py");
+    let skills_dir = dir.join("skills");
+
+    // Skill with statusline.py
+    let skill_py = skills_dir.join("py-status");
+    fs::create_dir_all(&skill_py).unwrap();
+    fs::write(skill_py.join("SKILL.md"), "---\ndescription: python statusline\n---\n").unwrap();
+    fs::write(skill_py.join("statusline.py"), "print('ok')").unwrap();
+
+    // Skill with statuslines/ directory
+    let skill_dir_variant = skills_dir.join("multi-status");
+    fs::create_dir_all(&skill_dir_variant).unwrap();
+    fs::write(skill_dir_variant.join("SKILL.md"), "---\ndescription: dir statusline\n---\n").unwrap();
+    let statuslines_dir = skill_dir_variant.join("statuslines");
+    fs::create_dir_all(&statuslines_dir).unwrap();
+    fs::write(statuslines_dir.join("git.sh"), "#!/bin/bash\ngit status").unwrap();
+
+    let result = scan_skills_dir(&skills_dir, None);
+    assert_eq!(result.len(), 2);
+
+    let py = result.iter().find(|s| s.name == "py-status").unwrap();
+    assert!(py.has_statusline, "Should detect statusline.py");
+
+    let multi = result.iter().find(|s| s.name == "multi-status").unwrap();
+    assert!(multi.has_statusline, "Should detect statuslines/ directory");
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_scan_skills_global_finds_real_skills() {
+    // Integration test: verify the scanner finds skills in the real ~/.claude/skills/
+    let home = dirs::home_dir().expect("home dir");
+    let claude_dir = home.join(".claude");
+    if !claude_dir.join("skills").exists() {
+        return; // Skip if no skills dir
+    }
+
+    let result = scan_skills(&claude_dir).unwrap();
+
+    // We know there are 10 skills in ~/.claude/skills/ on this machine
+    assert!(
+        result.len() >= 5,
+        "Should find multiple global skills, got {}",
+        result.len()
+    );
+
+    // Verify each skill has a valid path and name
+    for skill in &result {
+        assert!(!skill.name.is_empty(), "Skill name should not be empty");
+        assert!(!skill.name.starts_with('.'), "Should skip hidden dirs");
+        assert!(
+            std::path::Path::new(&skill.path).exists(),
+            "Skill path should exist: {}",
+            skill.path
+        );
+    }
 }
