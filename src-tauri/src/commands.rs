@@ -578,18 +578,23 @@ pub async fn package_skills(
             canonical
         };
 
-        if !dir.exists() || !dir.is_dir() {
-            return Err(format!("Skill directory not found: {}", dir.display()));
+        if !dir.exists() {
+            return Err(format!("Path not found: {}", dir.display()));
         }
         skill_dirs.push((name.clone(), dir));
     }
 
-    // Build a combined description from the first skill
-    let first_skill_md = skill_dirs[0].1.join("SKILL.md");
-    let first_content = std::fs::read_to_string(&first_skill_md).unwrap_or_default();
+    // Build a combined description from the first item
+    let first_desc_path = if skill_dirs[0].1.is_dir() {
+        let skill_md = skill_dirs[0].1.join("SKILL.md");
+        if skill_md.exists() { skill_md } else { skill_dirs[0].1.join("AGENTS.md") }
+    } else {
+        skill_dirs[0].1.clone()
+    };
+    let first_content = std::fs::read_to_string(&first_desc_path).unwrap_or_default();
     let description = parse_frontmatter_description(&first_content);
 
-    // Create zip in memory with each skill as a top-level directory
+    // Create zip in memory with each item as a top-level directory
     let mut buf = Cursor::new(Vec::new());
     let mut zip_writer = zip::ZipWriter::new(&mut buf);
     let options = SimpleFileOptions::default()
@@ -597,13 +602,34 @@ pub async fn package_skills(
 
     let mut total_file_count: u32 = 0;
 
-    for (name, dir) in &skill_dirs {
-        // Add the skill as a top-level directory in the zip
-        zip_writer
-            .add_directory(format!("{}/", name), options)
-            .map_err(|e| format!("Failed to add directory to zip: {}", e))?;
+    for (name, path) in &skill_dirs {
+        if path.is_dir() {
+            // Directory item (skill, team, etc.) — add recursively
+            zip_writer
+                .add_directory(format!("{}/", name), options)
+                .map_err(|e| format!("Failed to add directory to zip: {}", e))?;
 
-        add_dir_to_zip_prefixed(&mut zip_writer, dir, dir, name, &options, &mut total_file_count)?;
+            add_dir_to_zip_prefixed(&mut zip_writer, path, path, name, &options, &mut total_file_count)?;
+        } else {
+            // Single file item (agent .md, CLAUDE.md rule, etc.) — wrap in a directory
+            let file_name = path.file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_else(|| "file.md".to_string());
+
+            zip_writer
+                .add_directory(format!("{}/", name), options)
+                .map_err(|e| format!("Failed to add directory to zip: {}", e))?;
+
+            let data = std::fs::read(path)
+                .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+            zip_writer
+                .start_file(format!("{}/{}", name, file_name), options)
+                .map_err(|e| format!("Failed to start zip entry: {}", e))?;
+            zip_writer
+                .write_all(&data)
+                .map_err(|e| format!("Failed to write zip entry: {}", e))?;
+            total_file_count += 1;
+        }
     }
 
     zip_writer

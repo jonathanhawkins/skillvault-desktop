@@ -72,6 +72,15 @@ pub struct Rule {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Statusline {
+    pub name: String,
+    pub path: String,
+    pub language: String,  // "bash", "python", "javascript", "typescript"
+    pub size_bytes: u64,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexConfig {
     pub model: Option<String>,
     pub trusted_projects: Vec<String>,
@@ -110,6 +119,7 @@ pub struct LocalState {
     pub mcp_servers: Vec<McpServer>,
     pub teams: Vec<Team>,
     pub rules: Vec<Rule>,
+    pub statuslines: Vec<Statusline>,
     pub claude_dir: String,
     pub codex_config: Option<CodexConfig>,
     pub codex_rules: Vec<CodexRule>,

@@ -1,10 +1,20 @@
 import { getState, setState } from '../lib/state';
-import { scanLocal, packageSkill, packageSkills, publishSkill, publishSkills, getAuthStatus } from '../lib/api';
+import { scanLocal, packageSkills, publishSkills, getAuthStatus } from '../lib/api';
 import { showToast } from '../components/toast';
 import { renderSidebar } from '../components/sidebar';
 import { navigate } from '../lib/router';
 import { esc, formatBytes } from '../lib/utils';
-import type { LocalSkill, PackagedSkill } from '../lib/types';
+import type { PackagedSkill } from '../lib/types';
+
+/** A publishable item — any local asset with a name and path */
+interface PublishableItem {
+  name: string;
+  path: string;
+  itemType: 'skill' | 'agent' | 'team' | 'rule' | 'statusline';
+  description?: string;
+  fileCount?: number;
+  project?: string | null;
+}
 
 const CATEGORIES = [
   'automation',
@@ -32,7 +42,7 @@ const CATEGORIES = [
 type PublishStep = 'select' | 'metadata' | 'publishing';
 
 let currentStep: PublishStep = 'select';
-let selectedSkills: LocalSkill[] = [];
+let selectedItems: PublishableItem[] = [];
 let packaged: PackagedSkill | null = null;
 let packageName = '';
 
@@ -59,7 +69,7 @@ export async function renderPublish() {
     content.innerHTML = `
       <div class="view-header">
         <div class="view-header-title">
-          <h1 class="h1">Publish Skill</h1>
+          <h1 class="h1">Publish</h1>
         </div>
       </div>
       <div style="display:flex;justify-content:center;padding:64px"><div class="spinner"></div></div>
@@ -72,7 +82,7 @@ export async function renderPublish() {
       content.innerHTML = `
         <div class="view-header">
           <div class="view-header-title">
-            <h1 class="h1">Publish Skill</h1>
+            <h1 class="h1">Publish</h1>
           </div>
         </div>
         <div class="empty-state">
@@ -102,7 +112,7 @@ function renderAuthRequired(content: HTMLElement) {
   content.innerHTML = `
     <div class="view-header">
       <div class="view-header-title">
-        <h1 class="h1">Publish Skill</h1>
+        <h1 class="h1">Publish</h1>
       </div>
     </div>
     <div class="empty-state">
@@ -110,7 +120,7 @@ function renderAuthRequired(content: HTMLElement) {
         <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
         <path d="M7 11V7a5 5 0 0110 0v4"/>
       </svg>
-      <div class="empty-state-text">Authentication required to publish skills.</div>
+      <div class="empty-state-text">Authentication required to publish.</div>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
         Add your API token in Settings to get started.
       </p>
@@ -122,43 +132,72 @@ function renderAuthRequired(content: HTMLElement) {
   });
 }
 
-function isSkillSelected(skill: LocalSkill): boolean {
-  return selectedSkills.some((s) => s.name === skill.name && s.path === skill.path);
+function isItemSelected(item: PublishableItem): boolean {
+  return selectedItems.some((s) => s.name === item.name && s.path === item.path);
 }
 
-function toggleSkillSelection(skill: LocalSkill) {
-  const idx = selectedSkills.findIndex((s) => s.name === skill.name && s.path === skill.path);
+function toggleItemSelection(item: PublishableItem) {
+  const idx = selectedItems.findIndex((s) => s.name === item.name && s.path === item.path);
   if (idx >= 0) {
-    selectedSkills.splice(idx, 1);
+    selectedItems.splice(idx, 1);
   } else {
-    selectedSkills.push(skill);
+    selectedItems.push(item);
   }
 }
 
-function groupSkillsByProject(skills: LocalSkill[]): Map<string, LocalSkill[]> {
-  const groups = new Map<string, LocalSkill[]>();
-  for (const skill of skills) {
-    const key = skill.project ?? '__global__';
+function groupItemsByType(items: PublishableItem[]): Map<string, PublishableItem[]> {
+  const groups = new Map<string, PublishableItem[]>();
+  for (const item of items) {
+    const key = item.itemType;
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(skill);
+    groups.get(key)!.push(item);
   }
   return groups;
 }
+
+const TYPE_LABELS: Record<string, string> = {
+  skill: 'Skills',
+  agent: 'Agents',
+  team: 'Teams',
+  rule: 'Rules (CLAUDE.md)',
+  statusline: 'Statuslines',
+};
 
 function renderSelectStep(content: HTMLElement) {
   const state = getState();
   const ls = state.localState!;
 
-  // Filter to local-only skills (not already published from SkillVault)
-  const localSkills = ls.skills.filter((s) => s.source === 'local');
+  // Build publishable items from all local asset types
+  const allItems: PublishableItem[] = [
+    ...ls.skills.filter((s) => s.source === 'local').map((s) => ({
+      name: s.name, path: s.path, itemType: 'skill' as const,
+      description: s.description, fileCount: s.file_count, project: s.project,
+    })),
+    ...ls.agents.map((a) => ({
+      name: a.name, path: a.path, itemType: 'agent' as const,
+      description: a.description,
+    })),
+    ...ls.teams.map((t) => ({
+      name: t.name, path: t.path, itemType: 'team' as const,
+      description: t.description ?? undefined, fileCount: t.member_count,
+    })),
+    ...ls.rules.map((r) => ({
+      name: r.name, path: r.path, itemType: 'rule' as const,
+      description: r.preview, project: r.project_path,
+    })),
+    ...ls.statuslines.map((sl) => ({
+      name: sl.name, path: sl.path, itemType: 'statusline' as const,
+      description: `${sl.language} statusline`,
+    })),
+  ];
 
   const stepsHtml = renderSteps('select');
 
-  if (localSkills.length === 0) {
+  if (allItems.length === 0) {
     content.innerHTML = `
       <div class="view-header">
         <div class="view-header-title">
-          <h1 class="h1">Publish Skill</h1>
+          <h1 class="h1">Publish</h1>
         </div>
       </div>
       ${stepsHtml}
@@ -166,50 +205,61 @@ function renderSelectStep(content: HTMLElement) {
         <svg class="empty-state-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
         </svg>
-        <div class="empty-state-text">No local skills to publish.</div>
+        <div class="empty-state-text">No local items to publish.</div>
         <p style="font-size:13px;color:var(--text-secondary)">
-          Skills sourced from SkillVault are already published. Create a new skill in <code style="font-size:12px;background:var(--bg-secondary);padding:2px 6px;border-radius:4px">~/.claude/skills/</code> first.
+          Create skills, agents, teams, or rules in <code style="font-size:12px;background:var(--bg-secondary);padding:2px 6px;border-radius:4px">~/.claude/</code> to get started.
         </p>
       </div>
     `;
     return;
   }
 
-  const grouped = groupSkillsByProject(localSkills);
-  const selCount = selectedSkills.length;
+  const grouped = groupItemsByType(allItems);
+  const selCount = selectedItems.length;
 
-  // Build grouped skill cards HTML
+  // Build grouped cards HTML by type
   let groupedCardsHtml = '';
-  const sortedKeys = [...grouped.keys()].sort((a, b) => {
-    if (a === '__global__') return -1;
-    if (b === '__global__') return 1;
-    return a.localeCompare(b);
-  });
+  const typeOrder: string[] = ['skill', 'agent', 'team', 'statusline', 'rule'];
 
-  for (const key of sortedKeys) {
-    const skills = grouped.get(key)!;
-    const headerLabel = key === '__global__' ? 'Global Skills' : esc(key);
+  const EMPTY_HINTS: Record<string, string> = {
+    skill: 'Create skills in <code style="font-size:11px;background:var(--bg-secondary);padding:2px 6px;border-radius:4px">~/.claude/skills/</code>',
+    agent: 'Add agent .md files to <code style="font-size:11px;background:var(--bg-secondary);padding:2px 6px;border-radius:4px">~/.claude/agents/</code>',
+    team: 'Create teams in <code style="font-size:11px;background:var(--bg-secondary);padding:2px 6px;border-radius:4px">~/.claude/teams/</code>',
+    statusline: 'Use <code style="font-size:11px;background:var(--bg-secondary);padding:2px 6px;border-radius:4px">/statusline</code> in Claude Code to generate one',
+    rule: 'Add a <code style="font-size:11px;background:var(--bg-secondary);padding:2px 6px;border-radius:4px">CLAUDE.md</code> to any project',
+  };
+
+  for (const typeKey of typeOrder) {
+    const items = grouped.get(typeKey);
+    const headerLabel = TYPE_LABELS[typeKey] || typeKey;
     groupedCardsHtml += `<div class="publish-group-header">${headerLabel}</div>`;
+
+    if (!items || items.length === 0) {
+      groupedCardsHtml += `<div style="padding:16px 0;font-size:12px;color:var(--text-muted)">None found. ${EMPTY_HINTS[typeKey] || ''}</div>`;
+      continue;
+    }
+
     groupedCardsHtml += `<div class="grid">`;
-    for (const skill of skills) {
-      const selected = isSkillSelected(skill);
+    for (const item of items) {
+      const selected = isItemSelected(item);
+      const badgeLabel = item.itemType === 'skill' ? 'local' : item.itemType;
+      const metaParts: string[] = [];
+      if (item.fileCount != null) metaParts.push(`${item.fileCount} files`);
+      if (item.project) metaParts.push(esc(item.project));
+
       groupedCardsHtml += `
-        <div class="skill-card skill-card--clickable publish-select-card${selected ? ' publish-select-card--selected' : ''}" data-skill="${esc(skill.name)}" data-path="${esc(skill.path)}">
+        <div class="skill-card skill-card--clickable publish-select-card${selected ? ' publish-select-card--selected' : ''}" data-item-name="${esc(item.name)}" data-item-path="${esc(item.path)}">
           <div style="display:flex;align-items:flex-start;gap:10px">
             <div class="publish-checkbox${selected ? ' publish-checkbox--checked' : ''}">
               ${selected ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
             </div>
             <div style="flex:1;min-width:0">
               <div class="skill-card-header">
-                <div class="skill-card-name">${esc(skill.name)}</div>
-                <span class="skill-card-source skill-card-source--local">local</span>
+                <div class="skill-card-name">${esc(item.name)}</div>
+                <span class="skill-card-source skill-card-source--local">${badgeLabel}</span>
               </div>
-              ${skill.description ? `<div class="skill-card-desc">${esc(skill.description)}</div>` : ''}
-              <div class="skill-card-meta">
-                <span>${skill.file_count} files</span>
-                ${skill.has_scripts ? '<span>scripts</span>' : ''}
-                ${skill.has_subagents ? '<span>subagents</span>' : ''}
-              </div>
+              ${item.description ? `<div class="skill-card-desc">${esc(item.description)}</div>` : ''}
+              ${metaParts.length > 0 ? `<div class="skill-card-meta">${metaParts.map((p) => `<span>${p}</span>`).join('')}</div>` : ''}
             </div>
           </div>
         </div>
@@ -221,15 +271,15 @@ function renderSelectStep(content: HTMLElement) {
   content.innerHTML = `
     <div class="view-header">
       <div class="view-header-title">
-        <h1 class="h1">Publish Skill</h1>
+        <h1 class="h1">Publish</h1>
       </div>
     </div>
     ${stepsHtml}
     <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
-      Select skills to publish to skillvault.md
+      Select items to publish to skillvault.md
     </p>
     <div class="publish-select-toolbar">
-      <span class="publish-select-count">${selCount} skill${selCount !== 1 ? 's' : ''} selected</span>
+      <span class="publish-select-count">${selCount} item${selCount !== 1 ? 's' : ''} selected</span>
       <button class="btn btn--sm" id="select-all-btn">Select All</button>
       <button class="btn btn--sm" id="clear-btn"${selCount === 0 ? ' disabled' : ''}>Clear</button>
     </div>
@@ -242,33 +292,32 @@ function renderSelectStep(content: HTMLElement) {
   // Bind card selection (toggle)
   content.querySelectorAll('.publish-select-card').forEach((card) => {
     card.addEventListener('click', () => {
-      const name = (card as HTMLElement).dataset.skill;
-      const path = (card as HTMLElement).dataset.path;
+      const name = (card as HTMLElement).dataset.itemName;
+      const path = (card as HTMLElement).dataset.itemPath;
       if (!name || !path) return;
-      const skill = localSkills.find((s) => s.name === name && s.path === path);
-      if (!skill) return;
+      const item = allItems.find((i) => i.name === name && i.path === path);
+      if (!item) return;
 
-      toggleSkillSelection(skill);
-      // Re-render to update all visual state
+      toggleItemSelection(item);
       renderSelectStep(content);
     });
   });
 
   // Select All
   content.querySelector('#select-all-btn')?.addEventListener('click', () => {
-    selectedSkills = [...localSkills];
+    selectedItems = [...allItems];
     renderSelectStep(content);
   });
 
   // Clear
   content.querySelector('#clear-btn')?.addEventListener('click', () => {
-    selectedSkills = [];
+    selectedItems = [];
     renderSelectStep(content);
   });
 
   // Next button
   content.querySelector('#next-btn')?.addEventListener('click', async () => {
-    if (selectedSkills.length < 1) return;
+    if (selectedItems.length < 1) return;
 
     const nextBtn = content.querySelector('#next-btn') as HTMLButtonElement;
     if (nextBtn) {
@@ -277,19 +326,17 @@ function renderSelectStep(content: HTMLElement) {
     }
 
     try {
-      if (selectedSkills.length === 1) {
-        packaged = await packageSkill(selectedSkills[0].name);
-      } else {
-        packaged = await packageSkills(selectedSkills.map((s) => s.name), selectedSkills.map((s) => s.path));
-      }
-      // Generate default package name
-      packageName = selectedSkills.length === 1
-        ? selectedSkills[0].name
-        : selectedSkills[0].name + '-bundle';
+      packaged = await packageSkills(
+        selectedItems.map((i) => i.name),
+        selectedItems.map((i) => i.path)
+      );
+      packageName = selectedItems.length === 1
+        ? selectedItems[0].name
+        : selectedItems[0].name + '-bundle';
       currentStep = 'metadata';
       renderPublish();
     } catch (e: any) {
-      showToast(`Failed to package skill${selectedSkills.length > 1 ? 's' : ''}: ${e}`, 'error');
+      showToast(`Failed to package: ${e}`, 'error');
       if (nextBtn) {
         nextBtn.disabled = false;
         nextBtn.textContent = 'Next';
@@ -299,14 +346,14 @@ function renderSelectStep(content: HTMLElement) {
 }
 
 function renderMetadataStep(content: HTMLElement) {
-  if (selectedSkills.length === 0 || !packaged) {
+  if (selectedItems.length === 0 || !packaged) {
     currentStep = 'select';
     renderPublish();
     return;
   }
 
   const stepsHtml = renderSteps('metadata');
-  const isBundle = selectedSkills.length > 1;
+  const isBundle = selectedItems.length > 1;
 
   // Derive default display name from package name (kebab-case to Title Case)
   const defaultDisplayName = packageName
@@ -316,7 +363,7 @@ function renderMetadataStep(content: HTMLElement) {
 
   const defaultTagline = packaged.description || '';
   const sizeStr = formatBytes(packaged.size_bytes);
-  const totalFiles = selectedSkills.reduce((sum, s) => sum + s.file_count, 0);
+  const totalFiles = selectedItems.reduce((sum, s) => sum + (s.fileCount ?? 1), 0);
 
   // Package name validation pattern
   const pkgNamePattern = 'a-z0-9-';
@@ -325,16 +372,16 @@ function renderMetadataStep(content: HTMLElement) {
   const chipsHtml = isBundle
     ? `
       <div class="publish-field">
-        <label class="settings-label">Included Skills</label>
+        <label class="settings-label">Included Items</label>
         <div style="display:flex;flex-wrap:wrap;gap:6px" id="skill-chips">
-          ${selectedSkills
+          ${selectedItems
             .map(
               (s) =>
                 `<span class="publish-chip" data-chip-name="${esc(s.name)}" data-chip-path="${esc(s.path)}">${esc(s.name)} <button type="button" aria-label="Remove ${esc(s.name)}">&#215;</button></span>`
             )
             .join('')}
         </div>
-        <div style="font-size:12px;color:var(--text-faint);margin-top:8px">${selectedSkills.length} skills, ${totalFiles} files</div>
+        <div style="font-size:12px;color:var(--text-faint);margin-top:8px">${selectedItems.length} items, ${totalFiles} files</div>
       </div>
     `
     : '';
@@ -344,7 +391,7 @@ function renderMetadataStep(content: HTMLElement) {
       <div style="margin-bottom:24px;padding:16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
           <span style="font-weight:600;font-size:14px;color:var(--text-primary)">Bundle: ${esc(packageName)}</span>
-          <span style="font-size:12px;color:var(--text-muted)">${selectedSkills.length} skills</span>
+          <span style="font-size:12px;color:var(--text-muted)">${selectedItems.length} items</span>
           <span style="font-size:12px;color:var(--text-muted)">${totalFiles} files</span>
           <span style="font-size:12px;color:var(--text-muted)">${sizeStr}</span>
         </div>
@@ -353,7 +400,7 @@ function renderMetadataStep(content: HTMLElement) {
     : `
       <div style="margin-bottom:24px;padding:16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-          <span style="font-weight:600;font-size:14px;color:var(--text-primary)">${esc(selectedSkills[0].name)}</span>
+          <span style="font-weight:600;font-size:14px;color:var(--text-primary)">${esc(selectedItems[0].name)}</span>
           <span style="font-size:12px;color:var(--text-muted)">${packaged.file_count} files</span>
           <span style="font-size:12px;color:var(--text-muted)">${sizeStr}</span>
         </div>
@@ -373,7 +420,7 @@ function renderMetadataStep(content: HTMLElement) {
   content.innerHTML = `
     <div class="view-header">
       <div class="view-header-title">
-        <h1 class="h1">Publish Skill</h1>
+        <h1 class="h1">Publish</h1>
       </div>
     </div>
     ${stepsHtml}
@@ -423,10 +470,10 @@ function renderMetadataStep(content: HTMLElement) {
         const chipName = chip.dataset.chipName;
         const chipPath = chip.dataset.chipPath;
         if (!chipName || !chipPath) return;
-        selectedSkills = selectedSkills.filter(
+        selectedItems = selectedItems.filter(
           (s) => !(s.name === chipName && s.path === chipPath)
         );
-        if (selectedSkills.length === 0) {
+        if (selectedItems.length === 0) {
           currentStep = 'select';
           renderPublish();
         } else {
@@ -463,7 +510,7 @@ function renderMetadataStep(content: HTMLElement) {
     if (pkgNameInput) {
       packageName = pkgNameInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
     } else {
-      packageName = selectedSkills[0].name;
+      packageName = selectedItems[0].name;
     }
 
     if (!displayName) {
@@ -491,20 +538,20 @@ async function renderPublishingStep(
   category?: string,
   version?: string
 ) {
-  if (selectedSkills.length === 0) {
+  if (selectedItems.length === 0) {
     currentStep = 'select';
     renderPublish();
     return;
   }
 
   const stepsHtml = renderSteps('publishing');
-  const isBundle = selectedSkills.length > 1;
-  const publishLabel = isBundle ? `Publishing ${selectedSkills.length} skills...` : 'Packaging...';
+  const isBundle = selectedItems.length > 1;
+  const publishLabel = isBundle ? `Publishing ${selectedItems.length} items...` : 'Packaging...';
 
   content.innerHTML = `
     <div class="view-header">
       <div class="view-header-title">
-        <h1 class="h1">Publish Skill</h1>
+        <h1 class="h1">Publish</h1>
       </div>
     </div>
     ${stepsHtml}
@@ -525,32 +572,21 @@ async function renderPublishingStep(
   try {
     if (statusEl) statusEl.textContent = 'Uploading to skillvault.md...';
 
-    let result: string;
-    if (isBundle) {
-      result = await publishSkills(
-        selectedSkills.map((s) => s.name),
-        selectedSkills.map((s) => s.path),
-        packageName,
-        displayName,
-        tagline ?? '',
-        category,
-        version
-      );
-    } else {
-      result = await publishSkill(
-        selectedSkills[0].name,
-        displayName,
-        tagline ?? '',
-        category,
-        version
-      );
-    }
+    const result = await publishSkills(
+      selectedItems.map((i) => i.name),
+      selectedItems.map((i) => i.path),
+      packageName,
+      displayName,
+      tagline ?? '',
+      category,
+      version
+    );
 
     // Success state
     content.innerHTML = `
       <div class="view-header">
         <div class="view-header-title">
-          <h1 class="h1">Publish Skill</h1>
+          <h1 class="h1">Publish</h1>
         </div>
       </div>
       ${stepsHtml}
@@ -574,7 +610,7 @@ async function renderPublishingStep(
         // Extract "author/name" from result like "Published author/Display Name v1.0.0 to skillvault.md"
         const match = result.match(/Published\s+(\S+)\//);
         const author = match ? match[1] : '';
-        const pkgName = isBundle ? packageName : selectedSkills[0]?.name || '';
+        const pkgName = isBundle ? packageName : selectedItems[0]?.name || '';
         const url = author && pkgName
           ? `https://skillvault.md/${author}/${pkgName}`
           : 'https://skillvault.md/search';
@@ -586,7 +622,7 @@ async function renderPublishingStep(
 
     content.querySelector('#done-btn')?.addEventListener('click', () => {
       currentStep = 'select';
-      selectedSkills = [];
+      selectedItems = [];
       packaged = null;
       packageName = '';
       navigate('installed');
@@ -595,7 +631,7 @@ async function renderPublishingStep(
     content.innerHTML = `
       <div class="view-header">
         <div class="view-header-title">
-          <h1 class="h1">Publish Skill</h1>
+          <h1 class="h1">Publish</h1>
         </div>
       </div>
       ${stepsHtml}
@@ -627,7 +663,7 @@ async function renderPublishingStep(
 
 function renderSteps(active: PublishStep): string {
   const steps: { key: PublishStep; label: string }[] = [
-    { key: 'select', label: '1. Select Skills' },
+    { key: 'select', label: '1. Select' },
     { key: 'metadata', label: '2. Metadata' },
     { key: 'publishing', label: '3. Publish' },
   ];

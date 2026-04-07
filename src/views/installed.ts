@@ -214,6 +214,25 @@ export async function renderInstalled() {
       </div>`
     : '';
 
+  const statuslinesHtml = ls.statuslines.length > 0
+    ? `<div class="installed-section">
+        <div class="installed-section-header">
+          <span class="installed-section-label">Statuslines</span>
+          <span class="installed-section-count">${ls.statuslines.length}</span>
+        </div>
+        <div class="grid">${ls.statuslines.map(sl => `
+          <div class="skill-card skill-card--clickable" data-statusline-path="${esc(sl.path)}" data-statusline-name="${esc(sl.name)}">
+            <div class="skill-card-header">
+              <div class="skill-card-name">${esc(sl.name)}</div>
+              <span class="skill-card-source skill-card-source--local">${esc(sl.language)}</span>
+            </div>
+            <div class="skill-card-desc" style="font-family:'Geist Mono',monospace;font-size:11px;white-space:pre-wrap">${esc(sl.preview)}</div>
+            <div class="skill-card-meta"><span>${formatBytes(sl.size_bytes)}</span></div>
+          </div>
+        `).join('')}</div>
+      </div>`
+    : '';
+
   // Fetch published packages if authenticated
   let publishedHtml = '';
   let publishedPackages: Package[] = [];
@@ -371,6 +390,7 @@ export async function renderInstalled() {
       ${mcpServersHtml}
       ${teamsHtml}
       ${rulesHtml}
+      ${statuslinesHtml}
     </div>
     <div id="codex-sections">
       ${codexSeparatorHtml}
@@ -540,6 +560,16 @@ export async function renderInstalled() {
       const path = (card as HTMLElement).dataset.rulePath!;
       const name = (card as HTMLElement).dataset.ruleName!;
       setState({ selectedFilePath: path, selectedFileTitle: name + ' — CLAUDE.md' });
+      navigate('file-detail');
+    });
+  });
+
+  // Click statusline cards to view script
+  content.querySelectorAll('[data-statusline-path]').forEach((card) => {
+    card.addEventListener('click', () => {
+      const path = (card as HTMLElement).dataset.statuslinePath!;
+      const name = (card as HTMLElement).dataset.statuslineName!;
+      setState({ selectedFilePath: path, selectedFileTitle: name + ' — Statusline' });
       navigate('file-detail');
     });
   });

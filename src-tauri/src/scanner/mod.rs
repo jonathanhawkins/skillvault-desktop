@@ -5,6 +5,7 @@ pub mod plugins;
 pub mod mcp;
 pub mod teams;
 pub mod rules;
+pub mod statuslines;
 pub mod codex;
 
 #[cfg(test)]
@@ -55,6 +56,7 @@ pub fn scan_all() -> Result<LocalState, String> {
     let mcp_servers = mcp::scan_mcp_servers(&claude_dir).unwrap_or_default();
     let teams = teams::scan_teams(&claude_dir).unwrap_or_default();
     let rules = rules::scan_rules(&claude_dir).unwrap_or_default();
+    let statuslines = statuslines::scan_statuslines(&claude_dir).unwrap_or_default();
 
     let (codex_config, codex_rules, codex_skills, codex_agents) =
         codex::scan_codex(&claude_dir);
@@ -67,6 +69,7 @@ pub fn scan_all() -> Result<LocalState, String> {
         mcp_servers,
         teams,
         rules,
+        statuslines,
         claude_dir: claude_dir.to_string_lossy().to_string(),
         codex_config,
         codex_rules,

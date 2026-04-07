@@ -7,6 +7,7 @@ export interface LocalState {
   mcp_servers: McpServer[];
   teams: Team[];
   rules: Rule[];
+  statuslines: Statusline[];
   claude_dir: string;
   codex_config: CodexConfig | null;
   codex_rules: CodexRule[];
@@ -67,6 +68,14 @@ export interface Rule {
   name: string;
   path: string;
   project_path: string | null;
+  size_bytes: number;
+  preview: string;
+}
+
+export interface Statusline {
+  name: string;
+  path: string;
+  language: string;
   size_bytes: number;
   preview: string;
 }
