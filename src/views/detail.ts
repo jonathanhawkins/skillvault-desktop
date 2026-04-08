@@ -151,7 +151,7 @@ export async function renderDetail() {
           <div id="install-menu" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;min-width:280px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-md);padding:4px 0;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.3)">
             <div class="install-menu-item" data-location="global" style="padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text-primary)">
               <div style="font-weight:500">Global</div>
-              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">~/.claude/skills/ — available to all projects</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">~/.claude/ — available to all projects</div>
             </div>
             <div id="install-projects-list"></div>
           </div>

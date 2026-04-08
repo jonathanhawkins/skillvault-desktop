@@ -1,6 +1,6 @@
 {
   "name": "skillvault-desktop",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Desktop companion app for SkillVault — manage AI coding skills",
   "type": "module",
   "scripts": {
