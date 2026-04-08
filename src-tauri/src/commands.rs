@@ -403,13 +403,20 @@ pub async fn read_file_content(file_path: String) -> Result<String, String> {
     let canonical = std::fs::canonicalize(path)
         .map_err(|e| format!("Cannot resolve path: {}", e))?;
 
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    if !canonical.starts_with(&home) {
-        return Err("Access denied: file is outside permitted directories".to_string());
-    }
+    check_file_access(&canonical)?;
 
     std::fs::read_to_string(&canonical)
         .map_err(|e| format!("Failed to read file: {}", e))
+}
+
+/// Check that a file path is within the user's home directory.
+/// Used by read_file_content and testable independently.
+fn check_file_access(canonical_path: &std::path::Path) -> Result<(), String> {
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    if !canonical_path.starts_with(&home) {
+        return Err("Access denied: file is outside permitted directories".to_string());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1002,6 +1009,153 @@ pub(crate) fn codex_plugin_uninstall_dir(plugin_name: &str) -> Result<(), String
             .map_err(|e| format!("Failed to remove: {}", e))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod file_access_tests {
+    use super::check_file_access;
+    use std::fs;
+    use std::path::Path;
+
+    fn make_temp_dir(prefix: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "skillvault_access_test_{}_{}",
+            prefix,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn test_access_allowed_under_home() {
+        let home = dirs::home_dir().unwrap();
+        // Any file under home should be allowed
+        let test_file = home.join(".claude").join("settings.json");
+        if test_file.exists() {
+            let canonical = std::fs::canonicalize(&test_file).unwrap();
+            assert!(
+                check_file_access(&canonical).is_ok(),
+                "Files under ~/.claude/ should be accessible"
+            );
+        }
+    }
+
+    #[test]
+    fn test_access_allowed_project_claude_dir() {
+        // Project-level .claude/ dirs under home should be allowed
+        let home = dirs::home_dir().unwrap();
+        // Find a real project CLAUDE.md to test
+        let dev_dirs = ["dev", "projects", "code", "src"];
+        for dir in &dev_dirs {
+            let test_path = home.join(dir);
+            if test_path.exists() {
+                let canonical = std::fs::canonicalize(&test_path).unwrap();
+                assert!(
+                    check_file_access(&canonical).is_ok(),
+                    "Project dirs under ~/{} should be accessible",
+                    dir
+                );
+                return;
+            }
+        }
+        // If no dev dirs found, test with home dir itself
+        let canonical = std::fs::canonicalize(&home).unwrap();
+        assert!(check_file_access(&canonical).is_ok());
+    }
+
+    #[test]
+    fn test_access_denied_outside_home() {
+        // /etc/passwd should be denied
+        let etc = Path::new("/etc/hosts");
+        if etc.exists() {
+            let canonical = std::fs::canonicalize(etc).unwrap();
+            assert!(
+                check_file_access(&canonical).is_err(),
+                "Files outside home directory should be denied"
+            );
+        }
+    }
+
+    #[test]
+    fn test_access_denied_root_path() {
+        let root = Path::new("/");
+        assert!(
+            check_file_access(root).is_err(),
+            "Root path should be denied"
+        );
+    }
+
+    /// E2E test: every file the scanner discovers must be readable by read_file_content.
+    /// This is the exact gap that caused the "Access denied" bug — the scanner found
+    /// files that the reader refused to open.
+    #[test]
+    fn test_all_scanned_items_are_readable() {
+        // Run the real scanner
+        let scan_result = crate::scanner::scan_all();
+        if scan_result.is_err() {
+            return; // Skip if no ~/.claude/ directory
+        }
+        let state = scan_result.unwrap();
+
+        // Collect all paths from every scanned item type
+        let mut all_paths: Vec<(String, String)> = Vec::new();
+
+        for s in &state.skills {
+            all_paths.push((format!("skill:{}", s.name), s.path.clone()));
+        }
+        for a in &state.agents {
+            all_paths.push((format!("agent:{}", a.name), a.path.clone()));
+        }
+        for t in &state.teams {
+            all_paths.push((format!("team:{}", t.name), t.path.clone()));
+        }
+        for r in &state.rules {
+            all_paths.push((format!("rule:{}", r.name), r.path.clone()));
+        }
+        for sl in &state.statuslines {
+            all_paths.push((format!("statusline:{}", sl.name), sl.path.clone()));
+        }
+
+        // Every scanned path must pass the access check
+        for (label, path_str) in &all_paths {
+            let path = Path::new(path_str);
+            if !path.exists() {
+                continue; // mdfind results may be stale
+            }
+
+            // For directories, check SKILL.md or any file inside
+            if path.is_dir() {
+                // The directory itself is fine, but check we can read files inside
+                if let Ok(entries) = fs::read_dir(path) {
+                    for entry in entries.flatten().take(1) {
+                        let file_path = entry.path();
+                        if file_path.is_file() {
+                            if let Ok(canonical) = std::fs::canonicalize(&file_path) {
+                                assert!(
+                                    check_file_access(&canonical).is_ok(),
+                                    "Scanner found {} at {} but read_file_content would deny access to {:?}",
+                                    label, path_str, canonical
+                                );
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Single file (agent .md, rule CLAUDE.md)
+                if let Ok(canonical) = std::fs::canonicalize(path) {
+                    assert!(
+                        check_file_access(&canonical).is_ok(),
+                        "Scanner found {} at {} but read_file_content would deny access",
+                        label, path_str
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
