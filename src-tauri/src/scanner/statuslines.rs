@@ -2,7 +2,7 @@ use crate::state::Statusline;
 use std::fs;
 use std::path::Path;
 
-/// Scan for statusline scripts in ~/.claude/ and referenced from settings.json
+/// Scan for statusline scripts and directories in ~/.claude/
 pub fn scan_statuslines(claude_dir: &Path) -> Result<Vec<Statusline>, String> {
     let mut statuslines = Vec::new();
     let mut seen_paths = std::collections::HashSet::new();
@@ -26,7 +26,7 @@ pub fn scan_statuslines(claude_dir: &Path) -> Result<Vec<Statusline>, String> {
 
                     let script_path = Path::new(&expanded);
                     if script_path.exists() && script_path.is_file() {
-                        if let Some(sl) = make_statusline(script_path) {
+                        if let Some(sl) = make_statusline_from_file(script_path) {
                             seen_paths.insert(sl.path.clone());
                             statuslines.push(sl);
                         }
@@ -36,7 +36,7 @@ pub fn scan_statuslines(claude_dir: &Path) -> Result<Vec<Statusline>, String> {
         }
     }
 
-    // 2. Scan ~/.claude/ for statusline.* files
+    // 2. Scan ~/.claude/ for statusline.* single files
     let extensions = ["sh", "bash", "py", "js", "ts"];
     for ext in &extensions {
         let filename = format!("statusline.{}", ext);
@@ -44,7 +44,7 @@ pub fn scan_statuslines(claude_dir: &Path) -> Result<Vec<Statusline>, String> {
         if path.exists() && path.is_file() {
             let path_str = path.to_string_lossy().to_string();
             if !seen_paths.contains(&path_str) {
-                if let Some(sl) = make_statusline(&path) {
+                if let Some(sl) = make_statusline_from_file(&path) {
                     seen_paths.insert(sl.path.clone());
                     statuslines.push(sl);
                 }
@@ -52,22 +52,40 @@ pub fn scan_statuslines(claude_dir: &Path) -> Result<Vec<Statusline>, String> {
         }
     }
 
-    // 3. Scan ~/.claude/statuslines/ directory if it exists
+    // 3. Scan ~/.claude/statusline/ (singular) — treat as a statusline package directory
+    let statusline_dir = claude_dir.join("statusline");
+    if statusline_dir.exists() && statusline_dir.is_dir() {
+        let path_str = statusline_dir.to_string_lossy().to_string();
+        if !seen_paths.contains(&path_str) {
+            if let Some(sl) = make_statusline_from_dir(&statusline_dir) {
+                seen_paths.insert(sl.path.clone());
+                statuslines.push(sl);
+            }
+        }
+    }
+
+    // 4. Scan ~/.claude/statuslines/ (plural) — each entry is a statusline
     let statuslines_dir = claude_dir.join("statuslines");
     if statuslines_dir.exists() && statuslines_dir.is_dir() {
         if let Ok(entries) = fs::read_dir(&statuslines_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
                 let name = entry.file_name().to_string_lossy().to_string();
                 if name.starts_with('.') {
                     continue;
                 }
                 let path_str = path.to_string_lossy().to_string();
-                if !seen_paths.contains(&path_str) {
-                    if let Some(sl) = make_statusline(&path) {
+                if seen_paths.contains(&path_str) {
+                    continue;
+                }
+
+                if path.is_dir() {
+                    if let Some(sl) = make_statusline_from_dir(&path) {
+                        seen_paths.insert(sl.path.clone());
+                        statuslines.push(sl);
+                    }
+                } else if path.is_file() {
+                    if let Some(sl) = make_statusline_from_file(&path) {
                         seen_paths.insert(sl.path.clone());
                         statuslines.push(sl);
                     }
@@ -80,26 +98,14 @@ pub fn scan_statuslines(claude_dir: &Path) -> Result<Vec<Statusline>, String> {
     Ok(statuslines)
 }
 
-fn make_statusline(path: &Path) -> Option<Statusline> {
+/// Create a Statusline entry from a single script file
+fn make_statusline_from_file(path: &Path) -> Option<Statusline> {
     let file_name = path.file_name()?.to_string_lossy().to_string();
-
-    // Derive name: strip extension, use stem
     let name = path.file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| file_name.clone());
 
-    let ext = path.extension()
-        .map(|e| e.to_string_lossy().to_string())
-        .unwrap_or_default();
-
-    let language = match ext.as_str() {
-        "sh" | "bash" => "bash",
-        "py" => "python",
-        "js" => "javascript",
-        "ts" => "typescript",
-        _ => "shell",
-    }.to_string();
-
+    let language = detect_language(path);
     let metadata = fs::metadata(path).ok()?;
     let size_bytes = metadata.len();
 
@@ -117,4 +123,109 @@ fn make_statusline(path: &Path) -> Option<Statusline> {
         size_bytes,
         preview,
     })
+}
+
+/// Create a Statusline entry from a directory (package with multiple files)
+fn make_statusline_from_dir(dir: &Path) -> Option<Statusline> {
+    let name = dir.file_name()?.to_string_lossy().to_string();
+
+    // Find the main script — look for statusline.sh, then any .sh, then any script
+    let main_script = find_main_script(dir);
+    let language = main_script.as_ref()
+        .map(|p| detect_language(p))
+        .unwrap_or_else(|| "shell".to_string());
+
+    // Read description from README.md if present
+    let readme_path = dir.join("README.md");
+    let preview = if readme_path.exists() {
+        let content = fs::read_to_string(&readme_path).unwrap_or_default();
+        // Get first non-empty, non-heading line
+        content.lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else if let Some(ref script) = main_script {
+        let content = fs::read_to_string(script).unwrap_or_default();
+        content.lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with("#!"))
+            .take(2)
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        String::new()
+    };
+
+    // Total size of all files
+    let size_bytes = dir_size(dir);
+
+    Some(Statusline {
+        name,
+        path: dir.to_string_lossy().to_string(),
+        language,
+        size_bytes,
+        preview,
+    })
+}
+
+/// Find the main entry script in a statusline directory
+fn find_main_script(dir: &Path) -> Option<std::path::PathBuf> {
+    // Priority order: statusline.sh, then any .sh, then .ts, .js, .py
+    let candidates = [
+        "statusline.sh",
+        "statusline.bash",
+        "statusline.ts",
+        "statusline.js",
+        "statusline.py",
+    ];
+    for name in &candidates {
+        let p = dir.join(name);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    // Fall back to first script file found
+    let script_exts = ["sh", "bash", "ts", "js", "py"];
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if script_exts.contains(&ext.to_string_lossy().as_ref()) {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn detect_language(path: &Path) -> String {
+    let ext = path.extension()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "sh" | "bash" => "bash",
+        "py" => "python",
+        "js" => "javascript",
+        "ts" => "typescript",
+        _ => "shell",
+    }.to_string()
+}
+
+fn dir_size(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                total += fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            } else if path.is_dir() {
+                total += dir_size(&path);
+            }
+        }
+    }
+    total
 }
