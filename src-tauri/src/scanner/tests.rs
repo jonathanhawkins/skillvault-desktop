@@ -1,4 +1,5 @@
 use super::skills::{count_files, discover_skills_system_wide, parse_skill_description, scan_skills, scan_skills_dir};
+use super::statuslines::scan_statuslines;
 use super::agents::scan_agents;
 use super::hooks::scan_hooks;
 use super::plugins::scan_plugins;
@@ -879,4 +880,147 @@ fn test_scan_skills_global_finds_real_skills() {
             skill.path
         );
     }
+}
+
+// =====================================================================
+// Statusline scanner tests
+// =====================================================================
+
+#[test]
+fn test_statusline_settings_json_pointing_to_dir_file_uses_directory() {
+    // When settings.json points to ~/.claude/statusline/statusline.sh,
+    // the scanner should detect the parent directory as a multi-file package,
+    // NOT just the single file.
+    let dir = make_temp_dir("sl_settings_dir");
+
+    // Create the statusline directory with multiple files
+    let sl_dir = dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+    fs::write(sl_dir.join("debug.json"), "{\"debug\":true}").unwrap();
+    fs::write(sl_dir.join("nautilus-context.ts"), "// ts code").unwrap();
+    fs::write(sl_dir.join("README.md"), "# My Statusline\nA cool statusline").unwrap();
+    let nautilus_sub = sl_dir.join("nautilus");
+    fs::create_dir_all(&nautilus_sub).unwrap();
+    fs::write(nautilus_sub.join("data.json"), "{}").unwrap();
+
+    // Create settings.json pointing to statusline.sh inside the directory
+    let settings = format!(
+        r#"{{"statusLine":{{"type":"command","command":"{}"}}}}"#,
+        sl_dir.join("statusline.sh").to_string_lossy()
+    );
+    fs::write(dir.join("settings.json"), &settings).unwrap();
+
+    let result = scan_statuslines(&dir).unwrap();
+
+    // Should find exactly ONE statusline (the directory, not a duplicate file entry)
+    assert_eq!(
+        result.len(), 1,
+        "Should find exactly 1 statusline, not 2 (no duplicate). Got: {:?}",
+        result.iter().map(|s| format!("{}:{}", s.name, s.path)).collect::<Vec<_>>()
+    );
+
+    // The path should be the DIRECTORY, not the single file
+    let sl = &result[0];
+    assert!(
+        std::path::Path::new(&sl.path).is_dir(),
+        "Statusline path should be the directory ({}), not a single file",
+        sl.path
+    );
+    assert_eq!(sl.name, "statusline");
+
+    // The preview should come from README.md (directory mode), not the script content
+    assert!(
+        sl.preview.contains("cool statusline"),
+        "Preview should come from README.md, got: {}",
+        sl.preview
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_statusline_settings_json_root_file_stays_as_file() {
+    // When settings.json points to ~/.claude/statusline.sh (at the root, not in a subdir),
+    // it should be treated as a single file, not a directory
+    let dir = make_temp_dir("sl_settings_root");
+
+    fs::write(dir.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+
+    let settings = format!(
+        r#"{{"statusLine":{{"type":"command","command":"{}"}}}}"#,
+        dir.join("statusline.sh").to_string_lossy()
+    );
+    fs::write(dir.join("settings.json"), &settings).unwrap();
+
+    let result = scan_statuslines(&dir).unwrap();
+    assert_eq!(result.len(), 1);
+
+    let sl = &result[0];
+    assert!(
+        !std::path::Path::new(&sl.path).is_dir(),
+        "Root-level statusline.sh should stay as a single file"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_statusline_directory_no_duplicate_with_settings() {
+    // If settings.json points into ~/.claude/statusline/ AND the directory scanner
+    // also finds ~/.claude/statusline/, we should NOT get duplicates
+    let dir = make_temp_dir("sl_no_dup");
+
+    let sl_dir = dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+    fs::write(sl_dir.join("helper.ts"), "// helper").unwrap();
+
+    // settings.json points to a file inside the directory
+    let settings = format!(
+        r#"{{"statusLine":{{"type":"command","command":"{}"}}}}"#,
+        sl_dir.join("statusline.sh").to_string_lossy()
+    );
+    fs::write(dir.join("settings.json"), &settings).unwrap();
+
+    let result = scan_statuslines(&dir).unwrap();
+    assert_eq!(
+        result.len(), 1,
+        "Should not have duplicates. Got: {:?}",
+        result.iter().map(|s| format!("{}:{}", s.name, s.path)).collect::<Vec<_>>()
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_statusline_directory_gets_correct_file_count() {
+    // Verify the statusline scanner reports the correct size for a directory
+    // (this is what determines packaging — if size is wrong, files are missing)
+    let dir = make_temp_dir("sl_file_count");
+
+    let sl_dir = dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+    fs::write(sl_dir.join("debug.json"), "{}").unwrap();
+    fs::write(sl_dir.join("nautilus-context.ts"), "// code").unwrap();
+    fs::write(sl_dir.join("README.md"), "# Readme").unwrap();
+    let sub = sl_dir.join("nautilus");
+    fs::create_dir_all(&sub).unwrap();
+    fs::write(sub.join("data.json"), "{}").unwrap();
+
+    let result = scan_statuslines(&dir).unwrap();
+    assert_eq!(result.len(), 1);
+
+    // size_bytes should be the total of ALL files (not just statusline.sh = ~21 bytes)
+    let sl = &result[0];
+    // statusline.sh (21) + debug.json (2) + nautilus-context.ts (7) + README.md (8) + nautilus/data.json (2) = 40 bytes
+    let statusline_sh_size = "#!/bin/bash\necho hi".len() as u64;
+    assert!(
+        sl.size_bytes > statusline_sh_size,
+        "Total size ({}) should be greater than just statusline.sh ({}). All files must be included.",
+        sl.size_bytes, statusline_sh_size
+    );
+
+    cleanup(&dir);
 }

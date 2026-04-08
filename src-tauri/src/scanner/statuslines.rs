@@ -26,9 +26,33 @@ pub fn scan_statuslines(claude_dir: &Path) -> Result<Vec<Statusline>, String> {
 
                     let script_path = Path::new(&expanded);
                     if script_path.exists() && script_path.is_file() {
-                        if let Some(sl) = make_statusline_from_file(script_path) {
-                            seen_paths.insert(sl.path.clone());
-                            statuslines.push(sl);
+                        // If the script lives inside a multi-file directory (not ~/.claude/ root),
+                        // use the parent directory as the statusline package
+                        let parent = script_path.parent();
+                        let is_in_statusline_dir = parent.map(|p| {
+                            p != claude_dir && p.file_name().map(|n| n.to_string_lossy().contains("statusline")).unwrap_or(false)
+                        }).unwrap_or(false);
+
+                        if is_in_statusline_dir {
+                            let dir = parent.unwrap();
+                            let dir_str = dir.to_string_lossy().to_string();
+                            if !seen_paths.contains(&dir_str) {
+                                if let Some(sl) = make_statusline_from_dir(dir) {
+                                    seen_paths.insert(sl.path.clone());
+                                    // Also mark all files inside as seen to prevent duplicates
+                                    if let Ok(entries) = fs::read_dir(dir) {
+                                        for entry in entries.flatten() {
+                                            seen_paths.insert(entry.path().to_string_lossy().to_string());
+                                        }
+                                    }
+                                    statuslines.push(sl);
+                                }
+                            }
+                        } else {
+                            if let Some(sl) = make_statusline_from_file(script_path) {
+                                seen_paths.insert(sl.path.clone());
+                                statuslines.push(sl);
+                            }
                         }
                     }
                 }
