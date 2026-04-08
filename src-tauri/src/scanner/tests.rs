@@ -1,5 +1,5 @@
 use super::skills::{count_files, discover_skills_system_wide, parse_skill_description, scan_skills, scan_skills_dir};
-use super::statuslines::scan_statuslines;
+use super::statuslines::{scan_statuslines, extract_script_path};
 use super::agents::scan_agents;
 use super::hooks::scan_hooks;
 use super::plugins::scan_plugins;
@@ -1020,6 +1020,73 @@ fn test_statusline_directory_gets_correct_file_count() {
         sl.size_bytes > statusline_sh_size,
         "Total size ({}) should be greater than just statusline.sh ({}). All files must be included.",
         sl.size_bytes, statusline_sh_size
+    );
+
+    cleanup(&dir);
+}
+
+// =====================================================================
+// extract_script_path tests (Critical fix: scanner couldn't parse "bash /path")
+// =====================================================================
+
+#[test]
+fn test_extract_script_path_bash_prefix() {
+    assert_eq!(extract_script_path("bash /path/to/statusline.sh"), "/path/to/statusline.sh");
+}
+
+#[test]
+fn test_extract_script_path_sh_prefix() {
+    assert_eq!(extract_script_path("sh /path/to/statusline.sh"), "/path/to/statusline.sh");
+}
+
+#[test]
+fn test_extract_script_path_python_prefix() {
+    assert_eq!(extract_script_path("python3 /path/to/statusline.py"), "/path/to/statusline.py");
+}
+
+#[test]
+fn test_extract_script_path_no_prefix() {
+    assert_eq!(extract_script_path("/path/to/statusline.sh"), "/path/to/statusline.sh");
+}
+
+#[test]
+fn test_extract_script_path_tilde() {
+    assert_eq!(extract_script_path("bash ~/.claude/statusline/statusline.sh"), "~/.claude/statusline/statusline.sh");
+}
+
+#[test]
+fn test_extract_script_path_with_flags() {
+    // Should only extract the path, not flags after it
+    assert_eq!(extract_script_path("bash /path/to/script.sh --verbose"), "/path/to/script.sh");
+}
+
+#[test]
+fn test_extract_script_path_node_prefix() {
+    assert_eq!(extract_script_path("node /path/to/statusline.js"), "/path/to/statusline.js");
+}
+
+#[test]
+fn test_scanner_with_bash_prefix_in_settings() {
+    // End-to-end: settings.json has "bash /path/statusline.sh",
+    // scanner should still find the statusline
+    let dir = make_temp_dir("scanner_bash_prefix");
+
+    let sl_dir = dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+    fs::write(sl_dir.join("helper.ts"), "// helper").unwrap();
+
+    // Settings uses "bash" prefix like wire_statusline_settings produces
+    let settings = format!(
+        r#"{{"statusLine":{{"type":"command","command":"bash {}"}}}}"#,
+        sl_dir.join("statusline.sh").to_string_lossy()
+    );
+    fs::write(dir.join("settings.json"), &settings).unwrap();
+
+    let result = scan_statuslines(&dir).unwrap();
+    assert!(
+        !result.is_empty(),
+        "Scanner should find statusline even with 'bash' prefix in command"
     );
 
     cleanup(&dir);

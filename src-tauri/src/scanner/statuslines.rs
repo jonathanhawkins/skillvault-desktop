@@ -13,15 +13,18 @@ pub fn scan_statuslines(claude_dir: &Path) -> Result<Vec<Statusline>, String> {
         if let Ok(content) = fs::read_to_string(&settings_path) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                 if let Some(cmd) = json.get("statusLine").and_then(|sl| sl.get("command")).and_then(|c| c.as_str()) {
+                    // Extract the script path from commands like "bash /path/to/statusline.sh"
+                    let raw_path = extract_script_path(cmd);
+
                     // Resolve ~ to home dir
-                    let expanded = if cmd.starts_with("~/") {
+                    let expanded = if raw_path.starts_with("~/") {
                         if let Some(home) = dirs::home_dir() {
-                            home.join(&cmd[2..]).to_string_lossy().to_string()
+                            home.join(&raw_path[2..]).to_string_lossy().to_string()
                         } else {
-                            cmd.to_string()
+                            raw_path.to_string()
                         }
                     } else {
-                        cmd.to_string()
+                        raw_path.to_string()
                     };
 
                     let script_path = Path::new(&expanded);
@@ -237,6 +240,25 @@ fn detect_language(path: &Path) -> String {
         "ts" => "typescript",
         _ => "shell",
     }.to_string()
+}
+
+/// Extract the actual script path from a statusLine command string.
+/// Handles: "bash /path/to/script.sh", "/path/to/script.sh", "python3 /path/script.py"
+pub(crate) fn extract_script_path(cmd: &str) -> &str {
+    let trimmed = cmd.trim();
+    // If the command starts with an interpreter (bash, sh, python, node, etc.),
+    // the script path is the next token
+    // Longer names first to prevent "python" matching "python3"
+    let interpreters = ["python3", "ts-node", "bash", "zsh", "python", "node", "npx", "tsx", "deno", "sh"];
+    for interp in &interpreters {
+        if trimmed.starts_with(interp) {
+            let rest = trimmed[interp.len()..].trim_start();
+            // Take everything up to the first space (flags come after)
+            return rest.split_whitespace().next().unwrap_or(rest);
+        }
+    }
+    // No interpreter prefix — the command IS the script path
+    trimmed.split_whitespace().next().unwrap_or(trimmed)
 }
 
 fn dir_size(dir: &Path) -> u64 {

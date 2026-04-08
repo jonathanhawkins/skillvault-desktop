@@ -1,4 +1,4 @@
-use super::{extract_zip, resolve_install_dir, resolve_skills_dir, wire_statusline_settings};
+use super::{extract_zip, resolve_install_dir, resolve_skills_dir, uninstall_from, unwire_statusline_settings, wire_statusline_settings};
 use std::fs;
 use std::io::Write;
 
@@ -390,6 +390,311 @@ fn test_wire_statusline_includes_type_field() {
     assert_eq!(
         json["statusLine"]["type"], "command",
         "statusLine.type must be 'command'"
+    );
+
+    cleanup(&dir);
+}
+
+// =====================================================================
+// unwire_statusline_settings tests
+// =====================================================================
+
+#[test]
+fn test_unwire_removes_our_statusline_from_settings() {
+    let dir = make_temp_dir("unwire_ours");
+    let claude_dir = dir.join(".claude");
+    let sl_dir = claude_dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash").unwrap();
+
+    // Settings with our statusline
+    let settings = format!(
+        r#"{{"model":"opus","statusLine":{{"type":"command","command":"bash {}"}}}}"#,
+        sl_dir.join("statusline.sh").to_string_lossy()
+    );
+    fs::write(claude_dir.join("settings.json"), &settings).unwrap();
+
+    unwire_statusline_settings(&claude_dir, &sl_dir);
+
+    let content = fs::read_to_string(claude_dir.join("settings.json")).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    // statusLine should be removed
+    assert!(json.get("statusLine").is_none(), "statusLine should be removed");
+    // Other settings preserved
+    assert_eq!(json["model"], "opus", "Other settings should be preserved");
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_unwire_preserves_custom_statusline() {
+    let dir = make_temp_dir("unwire_custom");
+    let claude_dir = dir.join(".claude");
+    let sl_dir = claude_dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+
+    // Settings with a DIFFERENT statusline (user's own, not ours)
+    let settings = r#"{"statusLine":{"type":"command","command":"bash /some/other/statusline.sh"}}"#;
+    fs::write(claude_dir.join("settings.json"), settings).unwrap();
+
+    unwire_statusline_settings(&claude_dir, &sl_dir);
+
+    let content = fs::read_to_string(claude_dir.join("settings.json")).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    // statusLine should NOT be removed — it's someone else's
+    assert!(
+        json.get("statusLine").is_some(),
+        "Should NOT remove a statusline that doesn't point to our directory"
+    );
+
+    cleanup(&dir);
+}
+
+// =====================================================================
+// Type-aware uninstall tests
+// =====================================================================
+
+#[test]
+fn test_uninstall_skill_moves_to_trash() {
+    let dir = make_temp_dir("uninst_skill");
+    let claude_dir = dir.join(".claude");
+    let skills_dir = claude_dir.join("skills");
+    let skill = skills_dir.join("my-skill");
+    fs::create_dir_all(&skill).unwrap();
+    fs::write(skill.join("SKILL.md"), "# Test").unwrap();
+
+    assert!(skill.exists());
+    uninstall_from("my-skill", &claude_dir).unwrap();
+    assert!(!skill.exists(), "Skill should be removed");
+
+    // Should be in trash
+    let trash = skills_dir.join(".trash");
+    assert!(trash.exists(), "Trash dir should exist");
+    let trash_entries: Vec<_> = fs::read_dir(&trash).unwrap().flatten().collect();
+    assert_eq!(trash_entries.len(), 1, "Should have one entry in trash");
+    assert!(trash_entries[0].file_name().to_string_lossy().contains("skill-my-skill"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_uninstall_agent_moves_to_trash() {
+    let dir = make_temp_dir("uninst_agent");
+    let claude_dir = dir.join(".claude");
+    let agents_dir = claude_dir.join("agents");
+    let agent = agents_dir.join("reviewer");
+    fs::create_dir_all(&agent).unwrap();
+    fs::write(agent.join("reviewer.md"), "# Agent").unwrap();
+
+    assert!(agent.exists());
+    uninstall_from("reviewer", &claude_dir).unwrap();
+    assert!(!agent.exists(), "Agent should be removed");
+
+    let trash = claude_dir.join("skills").join(".trash");
+    let entries: Vec<_> = fs::read_dir(&trash).unwrap().flatten().collect();
+    assert!(entries[0].file_name().to_string_lossy().contains("agent-reviewer"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_uninstall_team_moves_to_trash() {
+    let dir = make_temp_dir("uninst_team");
+    let claude_dir = dir.join(".claude");
+    let teams_dir = claude_dir.join("teams");
+    let team = teams_dir.join("my-team");
+    fs::create_dir_all(&team).unwrap();
+    fs::write(team.join("config.json"), "{}").unwrap();
+
+    uninstall_from("my-team", &claude_dir).unwrap();
+    assert!(!team.exists(), "Team should be removed");
+
+    let trash = claude_dir.join("skills").join(".trash");
+    let entries: Vec<_> = fs::read_dir(&trash).unwrap().flatten().collect();
+    assert!(entries[0].file_name().to_string_lossy().contains("team-my-team"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_uninstall_rule_moves_to_trash() {
+    let dir = make_temp_dir("uninst_rule");
+    let claude_dir = dir.join(".claude");
+    let rules_dir = claude_dir.join("rules");
+    let rule = rules_dir.join("testing");
+    fs::create_dir_all(&rule).unwrap();
+    fs::write(rule.join("testing.md"), "# Rules").unwrap();
+
+    uninstall_from("testing", &claude_dir).unwrap();
+    assert!(!rule.exists(), "Rule should be removed");
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_uninstall_statusline_with_meta_removes_and_unwires() {
+    let dir = make_temp_dir("uninst_sl");
+    let claude_dir = dir.join(".claude");
+    let sl_dir = claude_dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+
+    // Must have .skillvault-meta.json to be uninstallable
+    fs::write(sl_dir.join(".skillvault-meta.json"), r#"{"source":"skillvault","package_id":"test/sl","version":"1.0.0","installed_at":"now","auto_update":false}"#).unwrap();
+
+    // Wire up settings.json
+    let settings = format!(
+        r#"{{"model":"opus","statusLine":{{"type":"command","command":"bash {}"}}}}"#,
+        sl_dir.join("statusline.sh").to_string_lossy()
+    );
+    fs::write(claude_dir.join("settings.json"), &settings).unwrap();
+
+    uninstall_from("statusline", &claude_dir).unwrap();
+
+    // Directory should be gone
+    assert!(!sl_dir.exists(), "Statusline dir should be removed");
+
+    // settings.json should have statusLine removed
+    let content = fs::read_to_string(claude_dir.join("settings.json")).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(json.get("statusLine").is_none(), "statusLine should be removed from settings");
+    assert_eq!(json["model"], "opus", "Other settings preserved");
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_uninstall_statusline_without_meta_refuses() {
+    let dir = make_temp_dir("uninst_sl_nope");
+    let claude_dir = dir.join(".claude");
+    let sl_dir = claude_dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+    // NO .skillvault-meta.json — user's own statusline
+
+    let result = uninstall_from("statusline", &claude_dir);
+    assert!(result.is_err(), "Should refuse to remove user's own statusline");
+    assert!(result.unwrap_err().contains("not installed by SkillVault"));
+
+    // Directory should still exist
+    assert!(sl_dir.exists(), "User's statusline should NOT be removed");
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_uninstall_nonexistent_returns_error() {
+    let dir = make_temp_dir("uninst_404");
+    let claude_dir = dir.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+
+    let result = uninstall_from("does-not-exist", &claude_dir);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("not found"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_uninstall_statusline_preserves_custom_settings() {
+    // If someone else's statusline is in settings.json, uninstalling ours
+    // should NOT touch their config
+    let dir = make_temp_dir("uninst_sl_custom");
+    let claude_dir = dir.join(".claude");
+    let sl_dir = claude_dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash").unwrap();
+    fs::write(sl_dir.join(".skillvault-meta.json"), r#"{"source":"skillvault","package_id":"test/sl","version":"1.0.0","installed_at":"now","auto_update":false}"#).unwrap();
+
+    // Settings point to a DIFFERENT statusline (user's custom one)
+    let settings = r#"{"statusLine":{"type":"command","command":"bash /custom/statusline.sh"}}"#;
+    fs::write(claude_dir.join("settings.json"), settings).unwrap();
+
+    uninstall_from("statusline", &claude_dir).unwrap();
+
+    // Directory removed (it's ours via meta)
+    assert!(!sl_dir.exists());
+
+    // But settings.json statusLine should be PRESERVED (it's someone else's script)
+    let content = fs::read_to_string(claude_dir.join("settings.json")).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(
+        json.get("statusLine").is_some(),
+        "Should NOT remove custom statusline from settings"
+    );
+
+    cleanup(&dir);
+}
+
+// =====================================================================
+// Critical fix regression tests
+// =====================================================================
+
+#[test]
+fn test_wire_statusline_does_not_corrupt_invalid_json() {
+    // If settings.json has invalid JSON, wire_statusline_settings must NOT
+    // replace it with an empty object — that would lose all settings.
+    let dir = make_temp_dir("wire_invalid");
+    let claude_dir = dir.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+
+    let sl_dir = claude_dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash").unwrap();
+
+    // Write invalid JSON (trailing comma)
+    let invalid = r#"{"model": "opus", "permissions": {"allow": ["Bash(git *)"]},}"#;
+    fs::write(claude_dir.join("settings.json"), invalid).unwrap();
+
+    wire_statusline_settings(&claude_dir, &sl_dir);
+
+    // The original invalid content should be PRESERVED (not replaced with {})
+    let content = fs::read_to_string(claude_dir.join("settings.json")).unwrap();
+    assert!(
+        content.contains("opus"),
+        "Invalid settings.json should NOT be overwritten. Got: {}",
+        content
+    );
+    // statusLine should NOT have been added (since we couldn't parse)
+    assert!(
+        !content.contains("statusLine"),
+        "Should not inject statusLine into unparseable settings.json"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_unwire_uses_path_match_not_substring() {
+    // unwire_statusline_settings must use proper path matching, not substring.
+    // "/home/user/.claude/statusline" should NOT match "/home/user/.claude/statusline-backup"
+    let dir = make_temp_dir("unwire_path");
+    let claude_dir = dir.join(".claude");
+    let sl_dir = claude_dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash").unwrap();
+
+    // Settings point to a DIFFERENT directory that happens to contain "statusline" as a substring
+    let other_dir = claude_dir.join("statusline-backup");
+    fs::create_dir_all(&other_dir).unwrap();
+    fs::write(other_dir.join("statusline.sh"), "#!/bin/bash").unwrap();
+
+    let settings = format!(
+        r#"{{"statusLine":{{"type":"command","command":"bash {}"}}}}"#,
+        other_dir.join("statusline.sh").to_string_lossy()
+    );
+    fs::write(claude_dir.join("settings.json"), &settings).unwrap();
+
+    // Unwire with the shorter path — should NOT match the longer path
+    unwire_statusline_settings(&claude_dir, &sl_dir);
+
+    let content = fs::read_to_string(claude_dir.join("settings.json")).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(
+        json.get("statusLine").is_some(),
+        "Should NOT remove statusLine pointing to a different directory (statusline-backup)"
     );
 
     cleanup(&dir);

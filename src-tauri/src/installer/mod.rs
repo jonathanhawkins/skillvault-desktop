@@ -108,22 +108,34 @@ pub async fn install(
                 fs::rename(&item_src, &item_dest)
                     .map_err(|e| format!("Failed to install '{}' to {}: {}", item.name, dest_dir.display(), e))?;
             } else {
-                // Move contents INTO the destination (no extra nesting)
-                fs::create_dir_all(&item_dest)
-                    .map_err(|e| format!("Failed to create {}: {}", item_dest.display(), e))?;
+                // Move contents INTO the destination (no extra nesting).
+                // Backup existing directory first if it has content.
+                if item_dest.exists() && item_dest.is_dir() {
+                    // Check if there's anything to back up (non-empty dir)
+                    let has_content = fs::read_dir(&item_dest)
+                        .map(|mut entries| entries.next().is_some())
+                        .unwrap_or(false);
+                    if has_content {
+                        let trash_dir = claude_dir.join("skills").join(".trash");
+                        fs::create_dir_all(&trash_dir)
+                            .map_err(|e| format!("Failed to create .trash dir: {}", e))?;
+                        let backup_name = format!("{}-{}", item.name, chrono_simple_timestamp());
+                        // Copy existing to trash before overwriting
+                        let backup_path = trash_dir.join(&backup_name);
+                        let _ = fs::rename(&item_dest, &backup_path);
+                        fs::create_dir_all(&item_dest)
+                            .map_err(|e| format!("Failed to recreate {}: {}", item_dest.display(), e))?;
+                    }
+                } else {
+                    fs::create_dir_all(&item_dest)
+                        .map_err(|e| format!("Failed to create {}: {}", item_dest.display(), e))?;
+                }
+
                 if let Ok(entries) = fs::read_dir(&item_src) {
                     for entry in entries.flatten() {
                         let src_path = entry.path();
                         let file_name = entry.file_name();
                         let dest_path = item_dest.join(&file_name);
-                        // Overwrite existing files
-                        if dest_path.exists() {
-                            if dest_path.is_dir() {
-                                let _ = fs::remove_dir_all(&dest_path);
-                            } else {
-                                let _ = fs::remove_file(&dest_path);
-                            }
-                        }
                         fs::rename(&src_path, &dest_path)
                             .map_err(|e| format!("Failed to install '{}': {}", file_name.to_string_lossy(), e))?;
                     }
@@ -233,27 +245,125 @@ pub async fn install(
     }
 }
 
-/// Uninstall a skill (soft delete to .trash/)
-pub fn uninstall(skill_name: &str) -> Result<(), String> {
-    let skills_dir = get_skills_dir()?;
-    let skill_dir = skills_dir.join(skill_name);
+/// Uninstall an item by name. Searches skills, agents, teams, rules, statuslines.
+pub fn uninstall(item_name: &str) -> Result<(), String> {
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let claude_dir = home.join(".claude");
+    uninstall_from(item_name, &claude_dir)
+}
 
-    if !skill_dir.exists() {
-        return Err(format!("Skill '{}' not found", skill_name));
+/// Testable uninstall: searches the given claude_dir for an item across all type directories.
+/// Soft-deletes to .trash/. For statuslines: also removes the statusLine entry from settings.json,
+/// but ONLY if it points to the script we installed.
+pub(crate) fn uninstall_from(item_name: &str, claude_dir: &Path) -> Result<(), String> {
+    let trash_dir = claude_dir.join("skills").join(".trash");
+
+    // Search for the item across all type directories
+    let search_dirs = [
+        ("skill", claude_dir.join("skills")),
+        ("agent", claude_dir.join("agents")),
+        ("team", claude_dir.join("teams")),
+        ("rule", claude_dir.join("rules")),
+    ];
+
+    for (item_type, parent_dir) in &search_dirs {
+        let item_dir = parent_dir.join(item_name);
+        if item_dir.exists() {
+            fs::create_dir_all(&trash_dir)
+                .map_err(|e| format!("Failed to create .trash dir: {}", e))?;
+            let backup_name = format!("{}-{}-{}", item_type, item_name, chrono_simple_timestamp());
+            fs::rename(&item_dir, trash_dir.join(&backup_name))
+                .map_err(|e| format!("Failed to move {} to trash: {}", item_type, e))?;
+            return Ok(());
+        }
     }
 
-    let trash_dir = skills_dir.join(".trash");
-    fs::create_dir_all(&trash_dir)
-        .map_err(|e| format!("Failed to create .trash dir: {}", e))?;
+    // Check statusline — special case: it's a directory, not a named subdirectory
+    let statusline_dir = claude_dir.join("statusline");
+    if item_name == "statusline" && statusline_dir.exists() {
+        // Check that this was installed by SkillVault (has our meta file)
+        let meta_path = statusline_dir.join(".skillvault-meta.json");
+        if !meta_path.exists() {
+            return Err("Statusline was not installed by SkillVault — refusing to remove".to_string());
+        }
 
-    let timestamp = chrono_simple_timestamp();
-    let backup_name = format!("{}-{}", skill_name, timestamp);
-    let backup_path = trash_dir.join(&backup_name);
+        // Remove the statusLine entry from settings.json, but ONLY if it points to our script
+        unwire_statusline_settings(claude_dir, &statusline_dir);
 
-    fs::rename(&skill_dir, &backup_path)
-        .map_err(|e| format!("Failed to move skill to trash: {}", e))?;
+        // Soft delete the directory
+        fs::create_dir_all(&trash_dir)
+            .map_err(|e| format!("Failed to create .trash dir: {}", e))?;
+        let backup_name = format!("statusline-{}", chrono_simple_timestamp());
+        fs::rename(&statusline_dir, trash_dir.join(&backup_name))
+            .map_err(|e| format!("Failed to move statusline to trash: {}", e))?;
+        return Ok(());
+    }
 
-    Ok(())
+    Err(format!("'{}' not found in any ~/.claude/ directory", item_name))
+}
+
+/// Remove the statusLine entry from settings.json, but ONLY if it points
+/// to a script inside the given statusline directory.
+fn unwire_statusline_settings(claude_dir: &Path, statusline_dir: &Path) {
+    let settings_path = claude_dir.join("settings.json");
+    if !settings_path.exists() {
+        return;
+    }
+
+    let content = match fs::read_to_string(&settings_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut settings: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    // Check if statusLine.command references a script inside our directory.
+    // Extract the script path from the command (e.g. "bash /path/to/statusline.sh" → "/path/to/statusline.sh")
+    // and check if it starts with our directory path using canonical comparison.
+    let should_remove = settings.get("statusLine")
+        .and_then(|sl| sl.get("command"))
+        .and_then(|c| c.as_str())
+        .map(|cmd| {
+            // Extract the actual script path from the command
+            let script_str = cmd.trim();
+            let interpreters = ["python3 ", "ts-node ", "bash ", "zsh ", "python ", "node ", "npx ", "tsx ", "deno ", "sh "];
+            let path_part = interpreters.iter()
+                .find(|i| script_str.starts_with(*i))
+                .map(|i| script_str[i.len()..].trim().split_whitespace().next().unwrap_or(""))
+                .unwrap_or(script_str.split_whitespace().next().unwrap_or(""));
+
+            // Resolve ~ in the extracted path
+            let resolved = if path_part.starts_with("~/") {
+                dirs::home_dir().map(|h| h.join(&path_part[2..]).to_string_lossy().to_string())
+                    .unwrap_or_else(|| path_part.to_string())
+            } else {
+                path_part.to_string()
+            };
+
+            // Check if the script is inside our statusline directory
+            let script_path = std::path::Path::new(&resolved);
+            if let (Ok(script_canon), Ok(dir_canon)) = (
+                std::fs::canonicalize(script_path).or_else(|_| Ok::<_, std::io::Error>(script_path.to_path_buf())),
+                std::fs::canonicalize(statusline_dir).or_else(|_| Ok::<_, std::io::Error>(statusline_dir.to_path_buf())),
+            ) {
+                script_canon.starts_with(&dir_canon)
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false);
+
+    if should_remove {
+        if let Some(obj) = settings.as_object_mut() {
+            obj.remove("statusLine");
+        }
+        if let Ok(json_str) = serde_json::to_string_pretty(&settings) {
+            let _ = fs::write(&settings_path, json_str);
+        }
+    }
 }
 
 pub(crate) fn extract_zip(data: &[u8], target: &Path) -> Result<(), String> {
@@ -361,12 +471,19 @@ fn wire_statusline_settings(claude_dir: &Path, statusline_dir: &Path) {
 
     let command = format!("bash {}", script_path.to_string_lossy());
 
-    // Read existing settings or start fresh
+    // Read existing settings — NEVER silently replace on parse failure
     let mut settings: serde_json::Value = if settings_path.exists() {
-        fs::read_to_string(&settings_path)
-            .ok()
-            .and_then(|c| serde_json::from_str(&c).ok())
-            .unwrap_or_else(|| serde_json::json!({}))
+        match fs::read_to_string(&settings_path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(_) => {
+                    // Settings.json exists but is invalid JSON — don't corrupt it.
+                    // Skip wiring; user can fix manually or run /statusline in Claude Code.
+                    return;
+                }
+            },
+            Err(_) => return, // Can't read file — skip
+        }
     } else {
         serde_json::json!({})
     };

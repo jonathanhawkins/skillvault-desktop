@@ -1,5 +1,5 @@
 import { getState, setState } from '../lib/state';
-import { getPackage, installPackage, listProjects, deletePackage } from '../lib/api';
+import { getPackage, installPackage, uninstallSkill, listProjects, deletePackage, scanLocal } from '../lib/api';
 import { showToast } from '../components/toast';
 import { navigate } from '../lib/router';
 import { esc, formatNum } from '../lib/utils';
@@ -80,6 +80,41 @@ export async function renderDetail() {
       }
     }
 
+    // Check other item types: agents, teams, statuslines, rules
+    if (!installed && state.localState) {
+      const ls = state.localState;
+      // Agents
+      const agentMatch = ls.agents.find(a => a.name === pkg!.name);
+      if (agentMatch) {
+        installed = { name: agentMatch.name, path: agentMatch.path, source: 'local' as const } as any;
+        matchedSkills.push({ name: agentMatch.name, location: 'Global (agent)', path: agentMatch.path });
+      }
+      // Teams
+      if (!installed) {
+        const teamMatch = ls.teams.find(t => t.name === pkg!.name);
+        if (teamMatch) {
+          installed = { name: teamMatch.name, path: teamMatch.path, source: 'local' as const } as any;
+          matchedSkills.push({ name: teamMatch.name, location: 'Global (team)', path: teamMatch.path });
+        }
+      }
+      // Statuslines
+      if (!installed) {
+        const slMatch = ls.statuslines.find(sl => sl.name === pkg!.name);
+        if (slMatch) {
+          installed = { name: slMatch.name, path: slMatch.path, source: 'local' as const } as any;
+          matchedSkills.push({ name: slMatch.name, location: 'Global (statusline)', path: slMatch.path });
+        }
+      }
+      // Rules
+      if (!installed) {
+        const ruleMatch = ls.rules.find(r => r.name === pkg!.name);
+        if (ruleMatch) {
+          installed = { name: ruleMatch.name, path: ruleMatch.path, source: 'local' as const } as any;
+          matchedSkills.push({ name: ruleMatch.name, location: 'Global (rule)', path: ruleMatch.path });
+        }
+      }
+    }
+
     // If installed by package_id but no matchedSkills, add single entry
     if (installed && matchedSkills.length === 0) {
       matchedSkills.push({
@@ -123,9 +158,12 @@ export async function renderDetail() {
 
     const installedInfoHtml = installed && matchedSkills.length > 0
       ? `<div style="margin-top:16px;padding:12px 16px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:8px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            <span style="font-size:13px;font-weight:500;color:#22c55e">Installed on this machine</span>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span style="font-size:13px;font-weight:500;color:#22c55e">Installed on this machine</span>
+            </div>
+            <button class="btn btn--sm" id="detail-uninstall-btn" style="color:var(--error);border-color:var(--error);font-size:11px;padding:4px 10px">Uninstall</button>
           </div>
           ${Array.from(locationGroups.entries()).map(([loc, skills]) => `
             <div style="margin-top:6px">
@@ -200,7 +238,7 @@ export async function renderDetail() {
         </div>` : ''}
       </div>
       <div style="margin-bottom:16px">${compatHtml}</div>
-      ${pkg.description ? `<div class="detail-description">${simpleMarkdown(pkg.description)}</div>` : ''}
+      ${pkg.description ? `<div class="detail-description">${simpleMarkdown(cleanDescription(pkg.description))}</div>` : ''}
     `;
 
     // Bind events
@@ -334,6 +372,41 @@ export async function renderDetail() {
       });
     });
 
+    // Uninstall button (shown when package is already installed)
+    content.querySelector('#detail-uninstall-btn')?.addEventListener('click', () => {
+      const btn = content!.querySelector('#detail-uninstall-btn') as HTMLButtonElement;
+      if (btn.dataset.confirmed) {
+        btn.disabled = true;
+        btn.textContent = 'Removing...';
+        // Uninstall each matched item
+        const uninstallPromises = matchedSkills.map(ms =>
+          uninstallSkill(ms.name).catch(() => {/* best effort */})
+        );
+        Promise.all(uninstallPromises).then(async () => {
+          showToast(`Uninstalled ${pkg!.display_name || pkg!.name}`, 'success');
+          // Refresh local state and re-render
+          try {
+            const localState = await scanLocal();
+            setState({ localState });
+          } catch { /* ignore */ }
+          navigate('detail');
+        });
+      } else {
+        btn.dataset.confirmed = 'true';
+        btn.textContent = 'Confirm Remove';
+        btn.style.background = 'var(--error)';
+        btn.style.color = '#fff';
+        setTimeout(() => {
+          if (btn && !btn.disabled) {
+            delete btn.dataset.confirmed;
+            btn.textContent = 'Uninstall';
+            btn.style.background = '';
+            btn.style.color = 'var(--error)';
+          }
+        }, 3000);
+      }
+    });
+
     async function doInstall(installPath: string | null) {
       const btn = content!.querySelector('#install-btn') as HTMLButtonElement | null;
       const chevron = content!.querySelector('#install-chevron') as HTMLButtonElement | null;
@@ -360,6 +433,19 @@ export async function renderDetail() {
     `;
     content.querySelector('#back-btn')?.addEventListener('click', () => navigate('browse'));
   }
+}
+
+/** Clean up raw description text before markdown rendering.
+ *  Converts literal \n to real newlines, strips XML-style tags like <example>/<commentary>. */
+function cleanDescription(text: string): string {
+  return text
+    // Convert literal \n (two chars) to real newlines
+    .replace(/\\n/g, '\n')
+    // Strip XML-style tags but keep their content
+    .replace(/<\/?(example|commentary|context|thinking|artifact|result|output|response|instructions|steps|note|warning|tip|important)>/gi, '')
+    // Collapse 3+ consecutive newlines to 2
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function simpleMarkdown(text: string): string {
