@@ -16,28 +16,48 @@ pub fn scan_agents(claude_dir: &Path) -> Result<Vec<LocalAgent>, String> {
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-
         let name_os = entry.file_name();
         let filename = name_os.to_string_lossy();
-        if !filename.ends_with(".md") {
+
+        if filename.starts_with('.') {
             continue;
         }
 
-        let name = filename.trim_end_matches(".md").to_string();
-
-        let description = match fs::read_to_string(&path) {
-            Ok(content) => extract_first_paragraph(&content),
-            Err(_) => String::new(),
-        };
-
-        agents.push(LocalAgent {
-            name,
-            description,
-            path: path.to_string_lossy().to_string(),
-        });
+        if path.is_file() && filename.ends_with(".md") {
+            // Direct .md file: ~/.claude/agents/reviewer.md
+            let name = filename.trim_end_matches(".md").to_string();
+            let description = match fs::read_to_string(&path) {
+                Ok(content) => extract_first_paragraph(&content),
+                Err(_) => String::new(),
+            };
+            agents.push(LocalAgent {
+                name,
+                description,
+                path: path.to_string_lossy().to_string(),
+            });
+        } else if path.is_dir() {
+            // Subdirectory (SkillVault-installed agent): ~/.claude/agents/my-agent/my-agent.md
+            // Look for a .md file inside
+            if let Ok(sub_entries) = fs::read_dir(&path) {
+                for sub_entry in sub_entries.flatten() {
+                    let sub_path = sub_entry.path();
+                    let sub_name = sub_entry.file_name().to_string_lossy().to_string();
+                    if sub_path.is_file() && sub_name.ends_with(".md") && !sub_name.starts_with('.') {
+                        let name = sub_name.trim_end_matches(".md").to_string();
+                        let description = match fs::read_to_string(&sub_path) {
+                            Ok(content) => extract_first_paragraph(&content),
+                            Err(_) => String::new(),
+                        };
+                        agents.push(LocalAgent {
+                            name,
+                            description,
+                            path: path.to_string_lossy().to_string(), // Use the directory path for uninstall
+                        });
+                        break; // Only take the first .md in the subdirectory
+                    }
+                }
+            }
+        }
     }
 
     agents.sort_by(|a, b| a.name.cmp(&b.name));

@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicegui-org/nicegui/main/nicegui/static/tauri.schema.json",
   "productName": "SkillVault Desktop",
   "identifier": "md.skillvault.desktop",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
