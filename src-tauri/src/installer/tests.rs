@@ -1,4 +1,4 @@
-use super::{extract_zip, resolve_install_dir, resolve_skills_dir};
+use super::{extract_zip, resolve_install_dir, resolve_skills_dir, wire_statusline_settings};
 use std::fs;
 use std::io::Write;
 
@@ -295,6 +295,102 @@ fn test_agent_install_uses_name_subdir() {
     let (dest_dir, use_name_subdir) = resolve_install_dir(&claude_dir, "agent");
     assert!(use_name_subdir);
     assert_eq!(dest_dir, claude_dir.join("agents"));
+
+    cleanup(&dir);
+}
+
+// =====================================================================
+// wire_statusline_settings tests
+// =====================================================================
+
+#[test]
+fn test_wire_statusline_creates_settings_entry() {
+    let dir = make_temp_dir("wire_sl_new");
+    let claude_dir = dir.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+
+    // Create a statusline directory with a script
+    let sl_dir = claude_dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+
+    // No settings.json exists yet
+    assert!(!claude_dir.join("settings.json").exists());
+
+    wire_statusline_settings(&claude_dir, &sl_dir);
+
+    // settings.json should now exist with statusLine config
+    let settings_path = claude_dir.join("settings.json");
+    assert!(settings_path.exists(), "settings.json should be created");
+
+    let content = fs::read_to_string(&settings_path).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(json["statusLine"]["type"], "command");
+    let cmd = json["statusLine"]["command"].as_str().unwrap();
+    assert!(cmd.starts_with("bash "), "Command should start with 'bash '");
+    assert!(cmd.contains("statusline.sh"), "Command should reference statusline.sh");
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_wire_statusline_preserves_existing_settings() {
+    let dir = make_temp_dir("wire_sl_existing");
+    let claude_dir = dir.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+
+    // Create existing settings.json with other config
+    let existing = r#"{
+  "permissions": { "allow": ["Bash(git *)"] },
+  "model": "opus"
+}"#;
+    fs::write(claude_dir.join("settings.json"), existing).unwrap();
+
+    // Create statusline
+    let sl_dir = claude_dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+
+    wire_statusline_settings(&claude_dir, &sl_dir);
+
+    let content = fs::read_to_string(claude_dir.join("settings.json")).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    // statusLine should be added
+    assert_eq!(json["statusLine"]["type"], "command");
+
+    // Existing settings should be preserved
+    assert_eq!(json["model"], "opus");
+    assert!(json["permissions"]["allow"].is_array());
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_wire_statusline_includes_type_field() {
+    // Regression test: settings.json must have "type": "command" for Claude Code to use it
+    let dir = make_temp_dir("wire_sl_type");
+    let claude_dir = dir.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+
+    let sl_dir = claude_dir.join("statusline");
+    fs::create_dir_all(&sl_dir).unwrap();
+    fs::write(sl_dir.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+
+    wire_statusline_settings(&claude_dir, &sl_dir);
+
+    let content = fs::read_to_string(claude_dir.join("settings.json")).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert!(
+        json["statusLine"]["type"].is_string(),
+        "statusLine must have 'type' field — Claude Code requires it"
+    );
+    assert_eq!(
+        json["statusLine"]["type"], "command",
+        "statusLine.type must be 'command'"
+    );
 
     cleanup(&dir);
 }

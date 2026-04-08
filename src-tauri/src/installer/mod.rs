@@ -145,6 +145,11 @@ pub async fn install(
                     .map_err(|e| format!("Failed to write meta for '{}': {}", item.name, e))?;
             }
 
+            // For statuslines: wire up settings.json so Claude Code actually uses it
+            if item.item_type == "statusline" {
+                wire_statusline_settings(&claude_dir, &item_dest);
+            }
+
             installed_items.push(format!("{} ({})", item.name, item.item_type));
         }
 
@@ -323,6 +328,58 @@ pub(crate) fn resolve_skills_dir(install_location: Option<&str>) -> Result<std::
                 .map_err(|e| format!("Failed to create project skills dir: {}", e))?;
             Ok(skills_dir)
         }
+    }
+}
+
+/// After installing a statusline, wire it up in ~/.claude/settings.json
+/// so Claude Code actually uses it.
+fn wire_statusline_settings(claude_dir: &Path, statusline_dir: &Path) {
+    let settings_path = claude_dir.join("settings.json");
+
+    // Find the main script in the statusline directory
+    let main_script = ["statusline.sh", "statusline.bash", "statusline.py", "statusline.ts", "statusline.js"]
+        .iter()
+        .map(|name| statusline_dir.join(name))
+        .find(|p| p.exists());
+
+    let script_path = match main_script {
+        Some(p) => p,
+        None => {
+            // Fall back to first .sh file
+            if let Ok(entries) = fs::read_dir(statusline_dir) {
+                let found = entries.flatten()
+                    .find(|e| e.path().extension().map(|ext| ext == "sh").unwrap_or(false));
+                match found {
+                    Some(e) => e.path(),
+                    None => return, // No script found, skip
+                }
+            } else {
+                return;
+            }
+        }
+    };
+
+    let command = format!("bash {}", script_path.to_string_lossy());
+
+    // Read existing settings or start fresh
+    let mut settings: serde_json::Value = if settings_path.exists() {
+        fs::read_to_string(&settings_path)
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_else(|| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    // Add statusLine config
+    settings["statusLine"] = serde_json::json!({
+        "type": "command",
+        "command": command
+    });
+
+    // Write back
+    if let Ok(json_str) = serde_json::to_string_pretty(&settings) {
+        let _ = fs::write(&settings_path, json_str);
     }
 }
 
