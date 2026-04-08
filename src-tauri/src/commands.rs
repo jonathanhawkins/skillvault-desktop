@@ -404,15 +404,7 @@ pub async fn read_file_content(file_path: String) -> Result<String, String> {
         .map_err(|e| format!("Cannot resolve path: {}", e))?;
 
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let claude_dir = home.join(".claude");
-    let codex_dir = home.join(".codex");
-    let filename = canonical.file_name().and_then(|f| f.to_str()).unwrap_or("");
-    let is_claude_dir = canonical.starts_with(&claude_dir);
-    let is_codex_dir = canonical.starts_with(&codex_dir);
-    let is_claude_md = filename == "CLAUDE.md" || filename == "AGENTS.md";
-    let is_under_home = canonical.starts_with(&home);
-
-    if !(is_claude_dir || is_codex_dir || (is_claude_md && is_under_home)) {
+    if !canonical.starts_with(&home) {
         return Err("Access denied: file is outside permitted directories".to_string());
     }
 
