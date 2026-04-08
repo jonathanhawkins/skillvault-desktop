@@ -10,7 +10,8 @@ struct ManifestItem {
     name: String,
     #[serde(rename = "type")]
     item_type: String,
-    install_dir: String,
+    #[allow(dead_code)]
+    install_dir: Option<String>, // present in manifest but routing is based on item_type
 }
 
 #[derive(serde::Deserialize)]
@@ -72,6 +73,7 @@ pub async fn install(
         for item in &manifest.items {
             let item_src = tmp_dir.join(&item.name);
             if !item_src.exists() {
+                installed_items.push(format!("{} (skipped — missing from zip)", item.name));
                 continue;
             }
 
