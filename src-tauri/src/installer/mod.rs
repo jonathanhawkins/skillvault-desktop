@@ -4,10 +4,37 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 
+/// Manifest entry from .skillvault-manifest.json inside a package zip
+#[derive(serde::Deserialize)]
+struct ManifestItem {
+    name: String,
+    #[serde(rename = "type")]
+    item_type: String,
+    install_dir: String,
+}
+
+#[derive(serde::Deserialize)]
+struct Manifest {
+    items: Vec<ManifestItem>,
+}
+
+/// Resolve the correct ~/.claude/<subdir>/ for a given item type.
+/// Returns (parent_dir, use_item_name_as_subdir).
+/// For most types, items install as parent_dir/<name>/.
+/// For statusline, the item IS the directory (no extra nesting).
+fn resolve_install_dir(claude_dir: &Path, item_type: &str) -> (std::path::PathBuf, bool) {
+    match item_type {
+        "agent" => (claude_dir.join("agents"), true),
+        "team" => (claude_dir.join("teams"), true),
+        "rule" => (claude_dir.join("rules"), true),
+        "statusline" => (claude_dir.join("statusline"), false), // install files directly into ~/.claude/statusline/
+        _ => (claude_dir.join("skills"), true),
+    }
+}
+
 /// Install a package from SkillVault.
-/// `install_location` controls where the skill is installed:
-///   - None or Some("global") → ~/.claude/skills/<name>/
-///   - Some("<project_path>") → <project_path>/.claude/skills/<name>/
+/// Uses .skillvault-manifest.json to route each item to its correct ~/.claude/ subdirectory.
+/// Falls back to ~/.claude/skills/ for packages without a manifest (backwards compat).
 pub async fn install(
     author: &str,
     name: &str,
@@ -15,72 +42,175 @@ pub async fn install(
     install_location: Option<&str>,
 ) -> Result<String, String> {
     let client = ApiClient::new(token.map(|s| s.to_string()));
-
-    // Get package info
     let pkg = client.get_package(author, name).await?;
 
-    let skills_dir = resolve_skills_dir(install_location)?;
-    let target_dir = skills_dir.join(name);
-
-    // Check for conflicts
-    if target_dir.exists() {
-        // Backup existing skill
-        let trash_dir = skills_dir.join(".trash");
-        fs::create_dir_all(&trash_dir)
-            .map_err(|e| format!("Failed to create .trash dir: {}", e))?;
-
-        let timestamp = chrono_simple_timestamp();
-        let backup_name = format!("{}-{}", name, timestamp);
-        let backup_path = trash_dir.join(&backup_name);
-
-        fs::rename(&target_dir, &backup_path)
-            .map_err(|e| format!("Failed to backup existing skill: {}", e))?;
-    }
-
-    // Download
+    // Download zip
     let zip_bytes = client.download_package(author, name).await?;
 
-    // Extract
-    fs::create_dir_all(&target_dir)
-        .map_err(|e| format!("Failed to create target dir: {}", e))?;
+    // Extract to a temp directory first so we can read the manifest
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let claude_dir = home.join(".claude");
+    let tmp_dir = claude_dir.join("downloads").join(format!("{}-{}", name, chrono_simple_timestamp()));
+    fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
-    extract_zip(&zip_bytes, &target_dir)?;
+    extract_zip(&zip_bytes, &tmp_dir)?;
 
-    // Check if this is a multi-skill package: look for subdirectories containing SKILL.md
-    let mut sub_skills: Vec<String> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&target_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() && path.join("SKILL.md").exists() {
-                if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
-                    sub_skills.push(dir_name.to_string());
+    // Try to read .skillvault-manifest.json
+    let manifest_path = tmp_dir.join(".skillvault-manifest.json");
+    let manifest: Option<Manifest> = if manifest_path.exists() {
+        let content = fs::read_to_string(&manifest_path).ok();
+        content.and_then(|c| serde_json::from_str(&c).ok())
+    } else {
+        None
+    };
+
+    let mut installed_items: Vec<String> = Vec::new();
+
+    if let Some(manifest) = manifest {
+        // Manifest-based install: route each item to its correct directory
+        for item in &manifest.items {
+            let item_src = tmp_dir.join(&item.name);
+            if !item_src.exists() {
+                continue;
+            }
+
+            let (dest_dir, use_name_subdir) = if install_location.is_some() && install_location != Some("global") && item.item_type == "skill" {
+                (resolve_skills_dir(install_location)?, true)
+            } else {
+                resolve_install_dir(&claude_dir, &item.item_type)
+            };
+
+            fs::create_dir_all(&dest_dir)
+                .map_err(|e| format!("Failed to create {}: {}", dest_dir.display(), e))?;
+
+            // For most types: install as dest_dir/<name>/
+            // For statusline: install files directly into dest_dir/ (no extra nesting)
+            let item_dest = if use_name_subdir {
+                dest_dir.join(&item.name)
+            } else {
+                dest_dir.clone()
+            };
+
+            // Backup existing
+            if item_dest.exists() && use_name_subdir {
+                let trash_dir = claude_dir.join("skills").join(".trash");
+                fs::create_dir_all(&trash_dir)
+                    .map_err(|e| format!("Failed to create .trash dir: {}", e))?;
+                let backup_name = format!("{}-{}", item.name, chrono_simple_timestamp());
+                let _ = fs::rename(&item_dest, trash_dir.join(&backup_name));
+            }
+
+            if use_name_subdir {
+                // Move the whole directory
+                fs::rename(&item_src, &item_dest)
+                    .map_err(|e| format!("Failed to install '{}' to {}: {}", item.name, dest_dir.display(), e))?;
+            } else {
+                // Move contents INTO the destination (no extra nesting)
+                fs::create_dir_all(&item_dest)
+                    .map_err(|e| format!("Failed to create {}: {}", item_dest.display(), e))?;
+                if let Ok(entries) = fs::read_dir(&item_src) {
+                    for entry in entries.flatten() {
+                        let src_path = entry.path();
+                        let file_name = entry.file_name();
+                        let dest_path = item_dest.join(&file_name);
+                        // Overwrite existing files
+                        if dest_path.exists() {
+                            if dest_path.is_dir() {
+                                let _ = fs::remove_dir_all(&dest_path);
+                            } else {
+                                let _ = fs::remove_file(&dest_path);
+                            }
+                        }
+                        fs::rename(&src_path, &dest_path)
+                            .map_err(|e| format!("Failed to install '{}': {}", file_name.to_string_lossy(), e))?;
+                    }
+                }
+            }
+
+            // Write .skillvault-meta.json for trackable items
+            if item_dest.is_dir() {
+                let meta = SkillvaultMeta {
+                    source: "skillvault".to_string(),
+                    package_id: format!("{}/{}", author, name),
+                    version: pkg.current_version.clone(),
+                    installed_at: simple_iso_now(),
+                    auto_update: true,
+                };
+                let meta_json = serde_json::to_string_pretty(&meta)
+                    .map_err(|e| format!("Failed to serialize meta: {}", e))?;
+                fs::write(item_dest.join(".skillvault-meta.json"), meta_json)
+                    .map_err(|e| format!("Failed to write meta for '{}': {}", item.name, e))?;
+            }
+
+            installed_items.push(format!("{} ({})", item.name, item.item_type));
+        }
+
+        // Cleanup temp dir
+        let _ = fs::remove_dir_all(&tmp_dir);
+
+        Ok(format!(
+            "Installed {}/{} v{} — {}: {}",
+            author, name, pkg.current_version,
+            installed_items.len(),
+            installed_items.join(", ")
+        ))
+    } else {
+        // Legacy install: no manifest, everything goes to skills dir (backwards compat)
+        let skills_dir = resolve_skills_dir(install_location)?;
+        let target_dir = skills_dir.join(name);
+
+        // Backup existing
+        if target_dir.exists() {
+            let trash_dir = skills_dir.join(".trash");
+            fs::create_dir_all(&trash_dir)
+                .map_err(|e| format!("Failed to create .trash dir: {}", e))?;
+            let backup_name = format!("{}-{}", name, chrono_simple_timestamp());
+            let _ = fs::rename(&target_dir, trash_dir.join(&backup_name));
+        }
+
+        // Move from temp to skills dir
+        fs::rename(&tmp_dir, &target_dir)
+            .map_err(|e| format!("Failed to move to skills dir: {}", e))?;
+
+        // Check for multi-skill sub-directories
+        let mut sub_skills: Vec<String> = Vec::new();
+        if let Ok(entries) = fs::read_dir(&target_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() && path.join("SKILL.md").exists() {
+                    if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+                        sub_skills.push(dir_name.to_string());
+                    }
                 }
             }
         }
-    }
 
-    if !sub_skills.is_empty() {
-        // Multi-skill package: move each skill subdirectory to its own skills dir
-        let mut installed_names = Vec::new();
-        for sub_name in &sub_skills {
-            let sub_src = target_dir.join(sub_name);
-            let sub_dest = skills_dir.join(sub_name);
+        if !sub_skills.is_empty() {
+            for sub_name in &sub_skills {
+                let sub_src = target_dir.join(sub_name);
+                let sub_dest = skills_dir.join(sub_name);
+                if sub_dest.exists() {
+                    let trash_dir = skills_dir.join(".trash");
+                    fs::create_dir_all(&trash_dir).ok();
+                    let _ = fs::rename(&sub_dest, trash_dir.join(format!("{}-{}", sub_name, chrono_simple_timestamp())));
+                }
+                let _ = fs::rename(&sub_src, &sub_dest);
 
-            // Handle conflicts for sub-skill
-            if sub_dest.exists() {
-                let trash_dir = skills_dir.join(".trash");
-                fs::create_dir_all(&trash_dir)
-                    .map_err(|e| format!("Failed to create .trash dir: {}", e))?;
-                let timestamp = chrono_simple_timestamp();
-                let backup_name = format!("{}-{}", sub_name, timestamp);
-                fs::rename(&sub_dest, trash_dir.join(&backup_name))
-                    .map_err(|e| format!("Failed to backup existing skill '{}': {}", sub_name, e))?;
+                let meta = SkillvaultMeta {
+                    source: "skillvault".to_string(),
+                    package_id: format!("{}/{}", author, name),
+                    version: pkg.current_version.clone(),
+                    installed_at: simple_iso_now(),
+                    auto_update: true,
+                };
+                if let Ok(json) = serde_json::to_string_pretty(&meta) {
+                    let _ = fs::write(sub_dest.join(".skillvault-meta.json"), json);
+                }
             }
-
-            fs::rename(&sub_src, &sub_dest)
-                .map_err(|e| format!("Failed to move skill '{}': {}", sub_name, e))?;
-
-            // Write .skillvault-meta.json in each individual skill directory
+            let _ = fs::remove_dir_all(&target_dir);
+            Ok(format!("Installed {}/{} v{} — {} skills: {}", author, name, pkg.current_version, sub_skills.len(), sub_skills.join(", ")))
+        } else {
             let meta = SkillvaultMeta {
                 source: "skillvault".to_string(),
                 package_id: format!("{}/{}", author, name),
@@ -88,41 +218,11 @@ pub async fn install(
                 installed_at: simple_iso_now(),
                 auto_update: true,
             };
-            let meta_json = serde_json::to_string_pretty(&meta)
-                .map_err(|e| format!("Failed to serialize meta: {}", e))?;
-            fs::write(sub_dest.join(".skillvault-meta.json"), meta_json)
-                .map_err(|e| format!("Failed to write meta file for '{}': {}", sub_name, e))?;
-
-            installed_names.push(sub_name.clone());
+            if let Ok(json) = serde_json::to_string_pretty(&meta) {
+                let _ = fs::write(target_dir.join(".skillvault-meta.json"), json);
+            }
+            Ok(format!("Installed {}/{} v{} to {}", author, name, pkg.current_version, target_dir.display()))
         }
-
-        // Remove the original container directory
-        let _ = fs::remove_dir_all(&target_dir);
-
-        Ok(format!(
-            "Installed {}/{} v{} — {} skills: {}",
-            author, name, pkg.current_version,
-            installed_names.len(),
-            installed_names.join(", ")
-        ))
-    } else {
-        // Single skill — existing behavior
-        let meta = SkillvaultMeta {
-            source: "skillvault".to_string(),
-            package_id: format!("{}/{}", author, name),
-            version: pkg.current_version.clone(),
-            installed_at: simple_iso_now(),
-            auto_update: true,
-        };
-
-        let meta_json = serde_json::to_string_pretty(&meta)
-            .map_err(|e| format!("Failed to serialize meta: {}", e))?;
-
-        fs::write(target_dir.join(".skillvault-meta.json"), meta_json)
-            .map_err(|e| format!("Failed to write meta file: {}", e))?;
-
-        let display_path = target_dir.display();
-        Ok(format!("Installed {}/{} v{} to {}", author, name, pkg.current_version, display_path))
     }
 }
 

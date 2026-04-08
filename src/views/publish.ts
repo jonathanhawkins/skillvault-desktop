@@ -328,7 +328,8 @@ function renderSelectStep(content: HTMLElement) {
     try {
       packaged = await packageSkills(
         selectedItems.map((i) => i.name),
-        selectedItems.map((i) => i.path)
+        selectedItems.map((i) => i.path),
+        selectedItems.map((i) => i.itemType)
       );
       packageName = selectedItems.length === 1
         ? selectedItems[0].name
@@ -579,7 +580,8 @@ async function renderPublishingStep(
       displayName,
       tagline ?? '',
       category,
-      version
+      version,
+      selectedItems.map((i) => i.itemType)
     );
 
     // Success state

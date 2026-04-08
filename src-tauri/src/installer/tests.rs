@@ -1,4 +1,4 @@
-use super::{extract_zip, resolve_skills_dir};
+use super::{extract_zip, resolve_install_dir, resolve_skills_dir};
 use std::fs;
 use std::io::Write;
 
@@ -137,5 +137,164 @@ fn test_resolve_skills_dir_project() {
     let result = resolve_skills_dir(Some(dir.to_str().unwrap())).unwrap();
     assert_eq!(result, dir.join(".claude").join("skills"));
     assert!(result.exists()); // resolve_skills_dir creates it
+    cleanup(&dir);
+}
+
+// =====================================================================
+// resolve_install_dir tests — items route to correct directories
+// =====================================================================
+
+#[test]
+fn test_resolve_install_dir_skills() {
+    let claude_dir = std::path::Path::new("/tmp/test-claude");
+    let (dir, use_name) = resolve_install_dir(claude_dir, "skill");
+    assert_eq!(dir, claude_dir.join("skills"));
+    assert!(use_name, "Skills should use item name as subdirectory");
+}
+
+#[test]
+fn test_resolve_install_dir_agents() {
+    let claude_dir = std::path::Path::new("/tmp/test-claude");
+    let (dir, use_name) = resolve_install_dir(claude_dir, "agent");
+    assert_eq!(dir, claude_dir.join("agents"));
+    assert!(use_name, "Agents should use item name as subdirectory");
+}
+
+#[test]
+fn test_resolve_install_dir_teams() {
+    let claude_dir = std::path::Path::new("/tmp/test-claude");
+    let (dir, use_name) = resolve_install_dir(claude_dir, "team");
+    assert_eq!(dir, claude_dir.join("teams"));
+    assert!(use_name, "Teams should use item name as subdirectory");
+}
+
+#[test]
+fn test_resolve_install_dir_rules() {
+    let claude_dir = std::path::Path::new("/tmp/test-claude");
+    let (dir, use_name) = resolve_install_dir(claude_dir, "rule");
+    assert_eq!(dir, claude_dir.join("rules"));
+    assert!(use_name, "Rules should use item name as subdirectory");
+}
+
+#[test]
+fn test_resolve_install_dir_statusline_no_nesting() {
+    let claude_dir = std::path::Path::new("/tmp/test-claude");
+    let (dir, use_name) = resolve_install_dir(claude_dir, "statusline");
+    assert_eq!(dir, claude_dir.join("statusline"));
+    assert!(!use_name, "Statusline should NOT nest — files go directly into ~/.claude/statusline/");
+}
+
+// =====================================================================
+// Packaging tests — verify directory contents are fully included
+// =====================================================================
+
+#[test]
+fn test_extract_zip_directory_package_no_double_nesting() {
+    // Simulates what the installer does: extract a zip with name-prefixed entries
+    // into a temp dir, then verify the inner directory has all files
+    let dir = make_temp_dir("no_double_nest");
+
+    // Zip has statusline/ prefix on all entries (as package_skills creates)
+    let zip_data = create_zip_bytes(&[
+        ("statusline/statusline.sh", b"#!/bin/bash\necho hi\n"),
+        ("statusline/debug.json", b"{\"debug\": true}"),
+        ("statusline/nautilus-context.ts", b"// ts code\n"),
+        ("statusline/README.md", b"# Statusline\n"),
+    ]);
+
+    // Extract to temp dir (like the manifest-based installer does)
+    extract_zip(&zip_data, &dir).unwrap();
+
+    // The inner "statusline/" directory should exist with ALL files
+    let inner = dir.join("statusline");
+    assert!(inner.is_dir(), "Inner statusline/ directory should exist");
+    assert!(inner.join("statusline.sh").exists(), "statusline.sh should exist");
+    assert!(inner.join("debug.json").exists(), "debug.json should exist");
+    assert!(inner.join("nautilus-context.ts").exists(), "nautilus-context.ts should exist");
+    assert!(inner.join("README.md").exists(), "README.md should exist");
+
+    // Verify NO double nesting (no statusline/statusline/ directory)
+    assert!(
+        !inner.join("statusline").exists(),
+        "Should NOT have double-nested statusline/statusline/ directory"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_statusline_install_moves_contents_not_directory() {
+    // Simulates the manifest-based install for a statusline:
+    // Files should go INTO ~/.claude/statusline/, not create ~/.claude/statusline/statusline/
+    let dir = make_temp_dir("sl_install");
+    let claude_dir = dir.join(".claude");
+    let tmp_dir = dir.join("tmp");
+
+    // Create the extracted zip content (statusline/ directory with files)
+    let sl_src = tmp_dir.join("statusline");
+    fs::create_dir_all(&sl_src).unwrap();
+    fs::write(sl_src.join("statusline.sh"), "#!/bin/bash\necho hi").unwrap();
+    fs::write(sl_src.join("debug.json"), "{}").unwrap();
+    fs::write(sl_src.join("nautilus-context.ts"), "// code").unwrap();
+
+    // Resolve install dir for statusline type
+    let (dest_dir, use_name_subdir) = resolve_install_dir(&claude_dir, "statusline");
+    assert!(!use_name_subdir, "Statusline should not use name subdir");
+    fs::create_dir_all(&dest_dir).unwrap();
+
+    // Simulate the installer: move contents INTO dest_dir (not the directory itself)
+    if let Ok(entries) = fs::read_dir(&sl_src) {
+        for entry in entries.flatten() {
+            let src_path = entry.path();
+            let dest_path = dest_dir.join(entry.file_name());
+            fs::rename(&src_path, &dest_path).unwrap();
+        }
+    }
+
+    // Verify files are directly in ~/.claude/statusline/, not nested
+    assert!(dest_dir.join("statusline.sh").exists(), "statusline.sh should be in ~/.claude/statusline/");
+    assert!(dest_dir.join("debug.json").exists(), "debug.json should be in ~/.claude/statusline/");
+    assert!(dest_dir.join("nautilus-context.ts").exists(), "nautilus-context.ts should be in ~/.claude/statusline/");
+
+    // Verify NO double nesting
+    assert!(
+        !dest_dir.join("statusline").exists(),
+        "Should NOT have nested statusline/statusline/"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_skill_install_uses_name_subdir() {
+    // Skills SHOULD create a subdirectory: ~/.claude/skills/<name>/
+    let dir = make_temp_dir("skill_install");
+    let claude_dir = dir.join(".claude");
+
+    let (dest_dir, use_name_subdir) = resolve_install_dir(&claude_dir, "skill");
+    assert!(use_name_subdir, "Skills should use name subdir");
+
+    let item_dest = dest_dir.join("my-skill");
+    fs::create_dir_all(&item_dest).unwrap();
+    fs::write(item_dest.join("SKILL.md"), "# Test").unwrap();
+
+    assert!(item_dest.join("SKILL.md").exists());
+    assert_eq!(
+        item_dest.to_string_lossy(),
+        claude_dir.join("skills").join("my-skill").to_string_lossy()
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_agent_install_uses_name_subdir() {
+    let dir = make_temp_dir("agent_install");
+    let claude_dir = dir.join(".claude");
+
+    let (dest_dir, use_name_subdir) = resolve_install_dir(&claude_dir, "agent");
+    assert!(use_name_subdir);
+    assert_eq!(dest_dir, claude_dir.join("agents"));
+
     cleanup(&dir);
 }

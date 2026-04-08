@@ -127,8 +127,8 @@ export async function publishSkill(
   return invoke('publish_skill', { skillName, displayName, tagline, category, version });
 }
 
-export async function packageSkills(skillNames: string[], skillPaths: string[]): Promise<PackagedSkill> {
-  return invoke('package_skills', { skillNames, skillPaths });
+export async function packageSkills(skillNames: string[], skillPaths: string[], itemTypes?: string[]): Promise<PackagedSkill> {
+  return invoke('package_skills', { skillNames, skillPaths, itemTypes: itemTypes ?? skillNames.map(() => 'skill') });
 }
 
 export async function publishSkills(
@@ -138,7 +138,8 @@ export async function publishSkills(
   displayName: string,
   tagline: string,
   category: string,
-  version: string
+  version: string,
+  itemTypes?: string[]
 ): Promise<string> {
-  return invoke('publish_skills', { skillNames, skillPaths, packageName, displayName, tagline, category, version });
+  return invoke('publish_skills', { skillNames, skillPaths, packageName, displayName, tagline, category, version, itemTypes: itemTypes ?? skillNames.map(() => 'skill') });
 }

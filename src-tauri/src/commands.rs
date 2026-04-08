@@ -552,13 +552,16 @@ pub async fn publish_skill(
 pub async fn package_skills(
     skill_names: Vec<String>,
     skill_paths: Vec<String>,
+    item_types: Option<Vec<String>>,
 ) -> Result<PackagedSkill, String> {
     if skill_names.is_empty() {
-        return Err("No skills specified".to_string());
+        return Err("No items specified".to_string());
     }
     if skill_names.len() != skill_paths.len() {
         return Err("skill_names and skill_paths must have the same length".to_string());
     }
+    // Default all to "skill" if not provided
+    let types = item_types.unwrap_or_else(|| skill_names.iter().map(|_| "skill".to_string()).collect());
 
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
 
@@ -631,6 +634,32 @@ pub async fn package_skills(
             total_file_count += 1;
         }
     }
+
+    // Write .skillvault-manifest.json mapping each item to its type and install directory
+    let manifest_items: Vec<serde_json::Value> = skill_names.iter().enumerate().map(|(i, name)| {
+        let item_type = types.get(i).map(|s| s.as_str()).unwrap_or("skill");
+        let install_dir = match item_type {
+            "agent" => "agents",
+            "team" => "teams",
+            "rule" => "rules",
+            "statusline" => "statusline",
+            _ => "skills",
+        };
+        serde_json::json!({
+            "name": name,
+            "type": item_type,
+            "install_dir": install_dir
+        })
+    }).collect();
+    let manifest = serde_json::json!({ "items": manifest_items });
+    let manifest_bytes = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
+    zip_writer
+        .start_file(".skillvault-manifest.json", options)
+        .map_err(|e| format!("Failed to write manifest: {}", e))?;
+    zip_writer
+        .write_all(manifest_bytes.as_bytes())
+        .map_err(|e| format!("Failed to write manifest data: {}", e))?;
 
     zip_writer
         .finish()
@@ -708,6 +737,7 @@ pub async fn publish_skills(
     tagline: String,
     category: String,
     version: String,
+    item_types: Option<Vec<String>>,
     state: tauri::State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<String, String> {
     // 1. Get auth token from state
@@ -718,8 +748,8 @@ pub async fn publish_skills(
 
     let token = token.ok_or("Not authenticated — add your API token in Settings first")?;
 
-    // 2. Package the skills (create zip)
-    let packaged = package_skills(skill_names, skill_paths).await?;
+    // 2. Package the items (create zip with manifest)
+    let packaged = package_skills(skill_names, skill_paths, item_types).await?;
     let zip_bytes = base64::engine::general_purpose::STANDARD
         .decode(&packaged.zip_base64)
         .map_err(|e| format!("Failed to decode zip: {}", e))?;
