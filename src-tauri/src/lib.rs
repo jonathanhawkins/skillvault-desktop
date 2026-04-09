@@ -1,6 +1,7 @@
 mod api;
 mod commands;
 mod installer;
+mod optimizer;
 mod scanner;
 mod state;
 mod watcher;
@@ -90,6 +91,21 @@ pub fn run() {
             commands::update_package,
             commands::delete_package,
             commands::get_my_packages,
+            // Optimizer commands
+            commands::save_optimization_profile,
+            commands::load_optimization_profile,
+            commands::open_settings_json,
+            commands::get_optimization_status,
+            commands::apply_all_optimizations,
+            commands::reset_all_optimizations,
+            commands::set_always_thinking,
+            commands::write_zshrc_block,
+            commands::remove_zshrc_block,
+            commands::list_projects_with_launch_info,
+            commands::write_launch_script,
+            commands::remove_launch_script,
+            commands::detect_terminals,
+            commands::launch_terminal_with_claude,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

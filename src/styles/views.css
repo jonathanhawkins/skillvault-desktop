@@ -310,3 +310,143 @@
   appearance: auto;
   cursor: pointer;
 }
+
+/* Optimize view */
+.opt-section {
+  margin-bottom: 28px;
+  padding: 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.opt-section-label {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.66px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.opt-card {
+  padding: 14px 16px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.opt-card:last-child {
+  margin-bottom: 0;
+}
+
+/* Toggle switch */
+.opt-toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.opt-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.opt-toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 24px;
+  transition: background 0.2s;
+}
+
+.opt-toggle-slider::before {
+  content: '';
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--text-primary);
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.opt-toggle input:checked + .opt-toggle-slider {
+  background: var(--accent);
+}
+
+.opt-toggle input:checked + .opt-toggle-slider::before {
+  transform: translateX(20px);
+}
+
+/* Range slider */
+.opt-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+}
+
+.opt-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--bg-primary);
+}
+
+.opt-range:disabled {
+  opacity: 0.4;
+}
+
+/* Project row */
+.opt-project-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.opt-project-row:hover {
+  border-color: var(--border-hover);
+}
+
+.opt-project-row--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Select dropdown */
+.opt-select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: 'Geist', sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.opt-select:focus {
+  border-color: var(--accent);
+  outline: none;
+}

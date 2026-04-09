@@ -95,6 +95,7 @@ document.addEventListener('keydown', (e) => {
       case '5': e.preventDefault(); navigate('trending'); break;
       case '6': e.preventDefault(); navigate('plugins'); break;
       case '7': e.preventDefault(); navigate('settings'); break;
+      case '8': e.preventDefault(); navigate('optimize'); break;
     }
   }
 

@@ -229,4 +229,44 @@ export interface PackagedSkill {
   skill_names: string[];
 }
 
-export type ViewName = 'installed' | 'browse' | 'recent' | 'trending' | 'detail' | 'skill-detail' | 'file-detail' | 'settings' | 'plugins' | 'plugin-detail' | 'publish' | 'edit-package';
+// Optimizer types
+export interface OptimizationProfile {
+  max_thinking_tokens: number;
+  autocompact_pct: number;
+  disable_adaptive_thinking: boolean;
+  always_thinking_enabled: boolean;
+  auto_background_tasks: boolean;
+  no_flicker: boolean;
+  skip_permissions: boolean;
+  use_tmux: boolean;
+  experimental_agent_teams: boolean;
+  task_list_id: string;
+  extra_cli_args: string;
+}
+
+export interface OptimizationStatus {
+  always_thinking_enabled: boolean;
+  disable_adaptive_thinking: string | null;
+  max_thinking_tokens: string | null;
+  autocompact_pct_override: string | null;
+  optimization_score: number;
+  settings_json_exists: boolean;
+  shell_profile_path: string;
+  shell_block_exists: boolean;
+}
+
+export interface DetectedTerminal {
+  name: string;
+  app_path: string;
+  icon_name: string;
+}
+
+export interface ProjectWithLaunchScript {
+  name: string;
+  path: string;
+  encoded_name: string;
+  has_launch_script: boolean;
+  launch_script_path: string;
+}
+
+export type ViewName = 'installed' | 'browse' | 'recent' | 'trending' | 'detail' | 'skill-detail' | 'file-detail' | 'settings' | 'plugins' | 'plugin-detail' | 'publish' | 'edit-package' | 'optimize';

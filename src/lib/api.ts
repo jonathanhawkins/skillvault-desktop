@@ -10,6 +10,10 @@ import type {
   SkillDetail,
   MarketplacePlugin,
   PluginDetail,
+  OptimizationProfile,
+  OptimizationStatus,
+  DetectedTerminal,
+  ProjectWithLaunchScript,
 } from './types';
 
 const { invoke } = window.__TAURI__.core;
@@ -142,4 +146,58 @@ export async function publishSkills(
   itemTypes?: string[]
 ): Promise<string> {
   return invoke('publish_skills', { skillNames, skillPaths, packageName, displayName, tagline, category, version, itemTypes: itemTypes ?? skillNames.map(() => 'skill') });
+}
+
+// Optimizer API
+
+export async function saveOptimizationProfile(profile: OptimizationProfile): Promise<void> {
+  return invoke('save_optimization_profile', { profile });
+}
+
+export async function loadOptimizationProfile(): Promise<OptimizationProfile | null> {
+  return invoke('load_optimization_profile');
+}
+
+export async function getOptimizationStatus(): Promise<OptimizationStatus> {
+  return invoke('get_optimization_status');
+}
+
+export async function applyAllOptimizations(profile: OptimizationProfile): Promise<OptimizationStatus> {
+  return invoke('apply_all_optimizations', { profile });
+}
+
+export async function resetAllOptimizations(): Promise<OptimizationStatus> {
+  return invoke('reset_all_optimizations');
+}
+
+export async function setAlwaysThinking(enabled: boolean): Promise<OptimizationStatus> {
+  return invoke('set_always_thinking', { enabled });
+}
+
+export async function writeZshrcBlock(profile: OptimizationProfile): Promise<OptimizationStatus> {
+  return invoke('write_zshrc_block', { profile });
+}
+
+export async function removeZshrcBlock(): Promise<OptimizationStatus> {
+  return invoke('remove_zshrc_block');
+}
+
+export async function listProjectsWithLaunchInfo(): Promise<ProjectWithLaunchScript[]> {
+  return invoke('list_projects_with_launch_info');
+}
+
+export async function writeLaunchScript(projectPath: string, projectName: string, profile: OptimizationProfile): Promise<void> {
+  return invoke('write_launch_script', { projectPath, projectName, profile });
+}
+
+export async function removeLaunchScript(projectPath: string): Promise<void> {
+  return invoke('remove_launch_script', { projectPath });
+}
+
+export async function detectTerminals(): Promise<DetectedTerminal[]> {
+  return invoke('detect_terminals');
+}
+
+export async function launchTerminalWithClaude(terminalName: string, projectPath: string, profile: OptimizationProfile): Promise<string> {
+  return invoke('launch_terminal_with_claude', { terminalName, projectPath, profile });
 }

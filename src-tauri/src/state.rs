@@ -345,6 +345,61 @@ pub struct SkillvaultMeta {
     pub auto_update: bool,
 }
 
+// Optimizer types
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct OptimizationProfile {
+    #[serde(default = "default_thinking_tokens")]
+    pub max_thinking_tokens: u32,
+    #[serde(default = "default_autocompact")]
+    pub autocompact_pct: u32,
+    #[serde(default = "default_true")]
+    pub disable_adaptive_thinking: bool,
+    #[serde(default = "default_true")]
+    pub always_thinking_enabled: bool,
+    pub auto_background_tasks: bool,
+    pub no_flicker: bool,
+    pub skip_permissions: bool,
+    pub use_tmux: bool,
+    pub experimental_agent_teams: bool,
+    #[serde(default)]
+    pub task_list_id: String,
+    #[serde(default)]
+    pub extra_cli_args: String,
+}
+
+fn default_thinking_tokens() -> u32 { 50000 }
+fn default_autocompact() -> u32 { 45 }
+fn default_true() -> bool { true }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptimizationStatus {
+    pub always_thinking_enabled: bool,
+    pub disable_adaptive_thinking: Option<String>,
+    pub max_thinking_tokens: Option<String>,
+    pub autocompact_pct_override: Option<String>,
+    pub optimization_score: u8,
+    pub settings_json_exists: bool,
+    pub shell_profile_path: String,
+    pub shell_block_exists: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectedTerminal {
+    pub name: String,
+    pub app_path: String,
+    pub icon_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectWithLaunchScript {
+    pub name: String,
+    pub path: String,
+    pub encoded_name: String,
+    pub has_launch_script: bool,
+    pub launch_script_path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackagedSkill {
     pub name: String,

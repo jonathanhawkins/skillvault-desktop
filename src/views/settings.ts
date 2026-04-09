@@ -108,6 +108,8 @@ export async function renderSettings() {
         <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; 6</span>
         <span style="color:var(--text-secondary)">Settings</span>
         <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; 7 &nbsp;or&nbsp; &#8984; ,</span>
+        <span style="color:var(--text-secondary)">Optimize</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; 8</span>
         <div style="color:var(--text-faint);font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.5px;grid-column:1/-1;margin:8px 0 2px">ACTIONS</div>
         <span style="color:var(--text-secondary)">Search / focus search bar</span>
         <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-muted)">&#8984; F</span>

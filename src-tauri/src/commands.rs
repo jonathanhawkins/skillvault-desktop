@@ -2,7 +2,7 @@ use crate::api::auth;
 use crate::api::client::ApiClient;
 use crate::installer;
 use crate::scanner;
-use crate::state::{AppState, CategoryCount, LocalState, MarketplacePlugin, Package, PackagedSkill, PackageSearchResult, PluginDetail, PlatformStats, ProjectInfo, SkillDetail, SkillFile, SkillvaultMeta};
+use crate::state::{AppState, CategoryCount, DetectedTerminal, LocalState, MarketplacePlugin, OptimizationProfile, OptimizationStatus, Package, PackagedSkill, PackageSearchResult, PluginDetail, PlatformStats, ProjectInfo, ProjectWithLaunchScript, SkillDetail, SkillFile, SkillvaultMeta};
 use base64::Engine;
 use serde::Deserialize;
 use std::io::{Cursor, Write};
@@ -208,8 +208,8 @@ pub async fn clear_auth_token(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> 
     Ok(())
 }
 
-#[tauri::command]
-pub async fn list_projects() -> Result<Vec<ProjectInfo>, String> {
+/// Shared internal function to list Claude Code projects
+pub(crate) fn get_projects_internal() -> Result<Vec<ProjectInfo>, String> {
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let projects_dir = home.join(".claude").join("projects");
 
@@ -262,6 +262,11 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, String> {
 
     projects.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(projects)
+}
+
+#[tauri::command]
+pub async fn list_projects() -> Result<Vec<ProjectInfo>, String> {
+    get_projects_internal()
 }
 
 #[tauri::command]
@@ -1661,4 +1666,145 @@ pub async fn get_plugin_detail(
         install_path: install_info.and_then(|i| i.install_path.clone()),
         readme,
     })
+}
+
+// ===== Optimizer commands =====
+
+/// Helper to run blocking optimizer operations off the async executor
+async fn blocking<F, T>(f: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+pub async fn save_optimization_profile(profile: OptimizationProfile) -> Result<(), String> {
+    blocking(move || crate::optimizer::profile::save_profile(&profile)).await
+}
+
+#[tauri::command]
+pub async fn load_optimization_profile() -> Result<Option<OptimizationProfile>, String> {
+    blocking(crate::optimizer::profile::load_profile).await
+}
+
+#[tauri::command]
+pub async fn open_settings_json() -> Result<(), String> {
+    let path = crate::optimizer::profile::settings_json_path();
+    std::process::Command::new("open")
+        .arg(path.to_string_lossy().to_string())
+        .spawn()
+        .map_err(|e| format!("Failed to open settings.json: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_optimization_status() -> Result<OptimizationStatus, String> {
+    blocking(crate::optimizer::profile::get_status).await
+}
+
+#[tauri::command]
+pub async fn apply_all_optimizations(profile: OptimizationProfile) -> Result<OptimizationStatus, String> {
+    crate::optimizer::profile::validate_profile(&profile)?;
+    blocking(move || {
+        let _lock = crate::optimizer::lock();
+        crate::optimizer::profile::set_always_thinking(profile.always_thinking_enabled)?;
+        let env_block = crate::optimizer::profile::build_env_export_block(&profile);
+        let shell_path = crate::optimizer::shell_profile::get_shell_profile_path();
+        crate::optimizer::shell_profile::write_block(&shell_path, &env_block)?;
+        crate::optimizer::profile::get_status()
+    }).await
+}
+
+#[tauri::command]
+pub async fn reset_all_optimizations() -> Result<OptimizationStatus, String> {
+    blocking(|| {
+        let _lock = crate::optimizer::lock();
+        crate::optimizer::profile::set_always_thinking(false)?;
+        let shell_path = crate::optimizer::shell_profile::get_shell_profile_path();
+        crate::optimizer::shell_profile::remove_block(&shell_path)?;
+        crate::optimizer::profile::get_status()
+    }).await
+}
+
+#[tauri::command]
+pub async fn set_always_thinking(enabled: bool) -> Result<OptimizationStatus, String> {
+    blocking(move || {
+        let _lock = crate::optimizer::lock();
+        crate::optimizer::profile::set_always_thinking(enabled)?;
+        crate::optimizer::profile::get_status()
+    }).await
+}
+
+#[tauri::command]
+pub async fn write_zshrc_block(profile: OptimizationProfile) -> Result<OptimizationStatus, String> {
+    crate::optimizer::profile::validate_profile(&profile)?;
+    blocking(move || {
+        let _lock = crate::optimizer::lock();
+        let env_block = crate::optimizer::profile::build_env_export_block(&profile);
+        let shell_path = crate::optimizer::shell_profile::get_shell_profile_path();
+        crate::optimizer::shell_profile::write_block(&shell_path, &env_block)?;
+        crate::optimizer::profile::get_status()
+    }).await
+}
+
+#[tauri::command]
+pub async fn remove_zshrc_block() -> Result<OptimizationStatus, String> {
+    blocking(|| {
+        let _lock = crate::optimizer::lock();
+        let shell_path = crate::optimizer::shell_profile::get_shell_profile_path();
+        crate::optimizer::shell_profile::remove_block(&shell_path)?;
+        crate::optimizer::profile::get_status()
+    }).await
+}
+
+#[tauri::command]
+pub async fn list_projects_with_launch_info() -> Result<Vec<ProjectWithLaunchScript>, String> {
+    blocking(move || {
+        let projects = get_projects_internal()?;
+        Ok(crate::optimizer::launch_script::list_projects_with_launch_info(projects))
+    }).await
+}
+
+#[tauri::command]
+pub async fn write_launch_script(
+    project_path: String,
+    project_name: String,
+    profile: OptimizationProfile,
+) -> Result<(), String> {
+    crate::optimizer::profile::validate_profile(&profile)?;
+    blocking(move || {
+        let path = std::path::Path::new(&project_path);
+        if !path.exists() {
+            return Err(format!("Project directory does not exist: {}", project_path));
+        }
+        crate::optimizer::launch_script::write_script(path, &project_name, &profile)
+    }).await
+}
+
+#[tauri::command]
+pub async fn remove_launch_script(project_path: String) -> Result<(), String> {
+    blocking(move || {
+        crate::optimizer::launch_script::remove_script(std::path::Path::new(&project_path))
+    }).await
+}
+
+#[tauri::command]
+pub async fn detect_terminals() -> Result<Vec<DetectedTerminal>, String> {
+    blocking(|| Ok(crate::optimizer::terminal::detect_terminals())).await
+}
+
+#[tauri::command]
+pub async fn launch_terminal_with_claude(
+    terminal_name: String,
+    project_path: String,
+    profile: OptimizationProfile,
+) -> Result<String, String> {
+    crate::optimizer::profile::validate_profile(&profile)?;
+    blocking(move || {
+        crate::optimizer::terminal::launch_terminal(&terminal_name, &project_path, &profile)
+    }).await
 }

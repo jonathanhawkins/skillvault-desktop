@@ -16,6 +16,7 @@ import { renderPlugins } from './views/plugins';
 import { renderPluginDetail } from './views/plugin-detail';
 import { renderPublish } from './views/publish';
 import { renderEditPackage } from './views/edit-package';
+import { renderOptimize } from './views/optimize';
 
 // Register all views
 registerView('installed', renderInstalled);
@@ -30,6 +31,7 @@ registerView('plugins', renderPlugins);
 registerView('plugin-detail', renderPluginDetail);
 registerView('publish', renderPublish);
 registerView('edit-package', renderEditPackage);
+registerView('optimize', renderOptimize);
 
 // Initialize app
 async function init() {
