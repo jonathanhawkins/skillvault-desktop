@@ -85,6 +85,24 @@ cargo test --manifest-path src-tauri/Cargo.toml -- --test-threads=1  # 67 tests
 npx tsc --noEmit                               # TypeScript type check
 ```
 
+## Release & Deploy Process (MUST follow every time)
+
+After building a new version:
+
+1. **Bump version** in all 3 files: `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`
+2. **Production build:** `npm run tauri build` — produces DMG at `src-tauri/target/release/bundle/dmg/`
+3. **Commit & push** the version bump + code changes
+4. **Create GitHub release with the DMG attached:**
+   ```bash
+   gh release create v0.X.Y \
+     --title "SkillVault Desktop v0.X.Y" \
+     --notes "Release notes here" \
+     "src-tauri/target/release/bundle/dmg/SkillVault Desktop_0.X.Y_aarch64.dmg"
+   ```
+5. **Verify** the release is live: `gh release view v0.X.Y`
+
+**Never skip step 4.** The DMG must be uploaded to GitHub Releases so users can download it. A local build without a release means nobody gets the update.
+
 ## Features built
 
 - **Local scanner:** skills (global + per-project), agents, hooks, plugins, MCP servers, teams, rules
