@@ -147,7 +147,7 @@ pub fn default_profile() -> OptimizationProfile {
         experimental_agent_teams: false,
         task_list_id: String::new(),
         extra_cli_args: String::new(),
-        model: String::from("claude-opus-4-7"),
+        model: String::from("claude-opus-4-7[1m]"),
         effort_level: String::from("high"),
     }
 }

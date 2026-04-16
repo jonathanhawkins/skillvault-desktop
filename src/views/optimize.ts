@@ -29,7 +29,7 @@ let profile: OptimizationProfile = {
   experimental_agent_teams: false,
   task_list_id: '',
   extra_cli_args: '',
-  model: 'claude-opus-4-7',
+  model: 'claude-opus-4-7[1m]',
   effort_level: 'high',
 };
 
@@ -44,9 +44,12 @@ const MODEL_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'best', label: 'best — most capable available' },
   { value: 'opus[1m]', label: 'opus[1m] — 1M context' },
   { value: 'sonnet[1m]', label: 'sonnet[1m] — 1M context' },
-  { value: 'claude-opus-4-7', label: 'claude-opus-4-7' },
-  { value: 'claude-opus-4-6', label: 'claude-opus-4-6' },
-  { value: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6' },
+  { value: 'claude-opus-4-7[1m]', label: 'claude-opus-4-7[1m] — pinned, 1M context' },
+  { value: 'claude-opus-4-7', label: 'claude-opus-4-7 — pinned, 200k' },
+  { value: 'claude-opus-4-6[1m]', label: 'claude-opus-4-6[1m] — pinned, 1M context' },
+  { value: 'claude-opus-4-6', label: 'claude-opus-4-6 — pinned, 200k' },
+  { value: 'claude-sonnet-4-6[1m]', label: 'claude-sonnet-4-6[1m] — pinned, 1M context' },
+  { value: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6 — pinned, 200k' },
   { value: 'claude-haiku-4-5-20251001', label: 'claude-haiku-4-5-20251001' },
 ];
 
@@ -664,7 +667,7 @@ function bindEvents(content: HTMLElement) {
     confirmingReset = false;
     try {
       status = await resetAllOptimizations();
-      profile = { max_thinking_tokens: 50000, autocompact_pct: 40, disable_adaptive_thinking: true, always_thinking_enabled: true, auto_background_tasks: false, no_flicker: false, skip_permissions: false, use_tmux: false, experimental_agent_teams: false, task_list_id: '', extra_cli_args: '', model: 'claude-opus-4-7', effort_level: 'high' };
+      profile = { max_thinking_tokens: 50000, autocompact_pct: 40, disable_adaptive_thinking: true, always_thinking_enabled: true, auto_background_tasks: false, no_flicker: false, skip_permissions: false, use_tmux: false, experimental_agent_teams: false, task_list_id: '', extra_cli_args: '', model: 'claude-opus-4-7[1m]', effort_level: 'high' };
       showToast('All optimizations reset', 'success');
       renderView(content);
     } catch (e: any) {
