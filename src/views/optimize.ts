@@ -462,7 +462,13 @@ function renderView(content: HTMLElement) {
             </div>
           </div>
           <div style="margin-bottom:12px">
-            <label style="font-size:11px;color:var(--text-faint);font-family:'Geist Mono',monospace;letter-spacing:0.5px;text-transform:uppercase;display:block;margin-bottom:6px">Command</label>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <label style="font-size:11px;color:var(--text-faint);font-family:'Geist Mono',monospace;letter-spacing:0.5px;text-transform:uppercase">Command</label>
+              <button class="btn btn--sm" id="copy-launch-btn" title="Copy command to clipboard" style="font-size:11px;padding:4px 10px;display:inline-flex;align-items:center;gap:5px">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                <span>Copy</span>
+              </button>
+            </div>
             <div id="launch-preview" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:12px;font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-secondary);white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:80px">${esc(buildLaunchCommand(profile, projects[selectedProjectIdx]?.path || '', projects[selectedProjectIdx]?.name))}</div>
           </div>
           <button class="btn btn--lg" id="launch-btn" style="width:100%;background:var(--accent);color:#fff;border:none;font-size:14px;font-weight:600;padding:14px;border-radius:8px;cursor:pointer;transition:background 0.15s">
@@ -734,6 +740,19 @@ function bindEvents(content: HTMLElement) {
   });
   content.querySelector('#launch-terminal')?.addEventListener('change', (e) => {
     selectedTerminalIdx = parseInt((e.target as HTMLSelectElement).value, 10);
+  });
+
+  // Copy command button
+  content.querySelector('#copy-launch-btn')?.addEventListener('click', async () => {
+    const p = projects[selectedProjectIdx];
+    if (!p) return;
+    const cmd = buildLaunchCommand(profile, p.path, p.name);
+    try {
+      await navigator.clipboard.writeText(cmd);
+      showToast('Command copied to clipboard', 'success');
+    } catch (e: any) {
+      showToast(`Failed to copy: ${e}`, 'error');
+    }
   });
 
   // Launch button
