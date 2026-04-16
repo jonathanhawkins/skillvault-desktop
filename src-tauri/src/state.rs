@@ -366,6 +366,12 @@ pub struct OptimizationProfile {
     pub task_list_id: String,
     #[serde(default)]
     pub extra_cli_args: String,
+    /// Model alias or full ID (e.g. "opus", "sonnet", "claude-opus-4-7"). Empty = no override.
+    #[serde(default)]
+    pub model: String,
+    /// Effort level: "low", "medium", "high", "max", "auto". Empty = no override.
+    #[serde(default)]
+    pub effort_level: String,
 }
 
 fn default_thinking_tokens() -> u32 { 50000 }

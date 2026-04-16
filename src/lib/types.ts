@@ -242,6 +242,10 @@ export interface OptimizationProfile {
   experimental_agent_teams: boolean;
   task_list_id: string;
   extra_cli_args: string;
+  /** Model alias or full ID (e.g. "opus", "sonnet", "claude-opus-4-7"). Empty = no override. */
+  model: string;
+  /** Effort level: "low" | "medium" | "high" | "max" | "auto". Empty = no override. */
+  effort_level: string;
 }
 
 export interface OptimizationStatus {

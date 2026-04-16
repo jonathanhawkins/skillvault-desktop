@@ -29,7 +29,37 @@ let profile: OptimizationProfile = {
   experimental_agent_teams: false,
   task_list_id: '',
   extra_cli_args: '',
+  model: '',
+  effort_level: '',
 };
+
+// Model options shown in the picker. Aliases first, then pinned version IDs.
+// See https://code.claude.com/docs/en/model-config
+const MODEL_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Default (no override)' },
+  { value: 'opus', label: 'opus — latest Opus' },
+  { value: 'sonnet', label: 'sonnet — latest Sonnet' },
+  { value: 'haiku', label: 'haiku — latest Haiku' },
+  { value: 'opusplan', label: 'opusplan — Opus in plan, Sonnet to execute' },
+  { value: 'best', label: 'best — most capable available' },
+  { value: 'opus[1m]', label: 'opus[1m] — 1M context' },
+  { value: 'sonnet[1m]', label: 'sonnet[1m] — 1M context' },
+  { value: 'claude-opus-4-7', label: 'claude-opus-4-7' },
+  { value: 'claude-opus-4-6', label: 'claude-opus-4-6' },
+  { value: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6' },
+  { value: 'claude-haiku-4-5-20251001', label: 'claude-haiku-4-5-20251001' },
+];
+
+// Effort levels supported on Opus 4.6+ / Sonnet 4.6+.
+// See https://code.claude.com/docs/en/settings and /docs/en/model-config#adjust-effort-level
+const EFFORT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Default (no override)' },
+  { value: 'low', label: 'low — fastest, minimal reasoning' },
+  { value: 'medium', label: 'medium — balanced' },
+  { value: 'high', label: 'high — deeper reasoning' },
+  { value: 'max', label: 'max — deepest (Opus 4.6 only)' },
+  { value: 'auto', label: 'auto — reset to model default' },
+];
 
 let status: OptimizationStatus | null = null;
 let terminals: DetectedTerminal[] = [];
@@ -68,6 +98,8 @@ function buildEnvExportBlock(p: OptimizationProfile): string {
   if (p.experimental_agent_teams) lines.push('export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1');
   lines.push(`export MAX_THINKING_TOKENS=${p.max_thinking_tokens}`);
   lines.push(`export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=${p.autocompact_pct}`);
+  if (p.model) lines.push(`export ANTHROPIC_MODEL=${p.model}`);
+  if (p.effort_level) lines.push(`export CLAUDE_CODE_EFFORT_LEVEL=${p.effort_level}`);
   return lines.join('\n');
 }
 
@@ -81,6 +113,8 @@ function buildEnvInline(p: OptimizationProfile): string {
   if (p.task_list_id) parts.push(`CLAUDE_CODE_TASK_LIST_ID=${p.task_list_id}`);
   parts.push(`MAX_THINKING_TOKENS=${p.max_thinking_tokens}`);
   parts.push(`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=${p.autocompact_pct}`);
+  if (p.model) parts.push(`ANTHROPIC_MODEL=${p.model}`);
+  if (p.effort_level) parts.push(`CLAUDE_CODE_EFFORT_LEVEL=${p.effort_level}`);
   return parts.join(' ');
 }
 
@@ -159,6 +193,20 @@ function renderToggle(id: string, checked: boolean, label: string, description: 
           <span class="opt-toggle-slider"></span>
         </label>
       </div>
+    </div>
+  `;
+}
+
+function renderSelect(id: string, current: string, options: Array<{ value: string; label: string }>, label: string, description: string, detail: string): string {
+  const opts = options.map(o =>
+    `<option value="${esc(o.value)}"${o.value === current ? ' selected' : ''}>${esc(o.label)}</option>`
+  ).join('');
+  return `
+    <div class="opt-card">
+      <div style="font-size:14px;color:var(--text-primary);font-weight:500">${label}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${description}</div>
+      <div style="font-size:11px;color:var(--text-faint);margin-top:4px;font-family:'Geist Mono',monospace">${detail}</div>
+      <select id="${id}" class="opt-select" style="margin-top:10px;width:100%">${opts}</select>
     </div>
   `;
 }
@@ -293,6 +341,18 @@ function renderView(content: HTMLElement) {
         'Controls when Claude compacts conversation context. Lower values trigger compaction sooner, keeping more working memory.',
         'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE',
         true
+      )}
+
+      ${renderSelect('select-model', profile.model, MODEL_OPTIONS,
+        'Model',
+        'Which Claude model Claude Code uses. Aliases track the latest release; pinned IDs (like claude-opus-4-7) lock to a specific version.',
+        'ANTHROPIC_MODEL'
+      )}
+
+      ${renderSelect('select-effort', profile.effort_level, EFFORT_OPTIONS,
+        'Effort Level',
+        'Reasoning depth for Opus 4.6+ / Sonnet 4.6+ models. Higher levels reason longer but cost more; max is Opus 4.6 only.',
+        'CLAUDE_CODE_EFFORT_LEVEL'
       )}
 
       ${renderToggle('toggle-background', profile.auto_background_tasks,
@@ -542,6 +602,18 @@ function bindEvents(content: HTMLElement) {
     debouncedLoadPreviews(content);
   });
 
+  // Select: model
+  content.querySelector('#select-model')?.addEventListener('change', (e) => {
+    profile.model = (e.target as HTMLSelectElement).value;
+    debouncedLoadPreviews(content);
+  });
+
+  // Select: effort level
+  content.querySelector('#select-effort')?.addEventListener('change', (e) => {
+    profile.effort_level = (e.target as HTMLSelectElement).value;
+    debouncedLoadPreviews(content);
+  });
+
   // Input: task list ID
   content.querySelector('#input-task-list')?.addEventListener('input', (e) => {
     profile.task_list_id = (e.target as HTMLInputElement).value;
@@ -586,7 +658,7 @@ function bindEvents(content: HTMLElement) {
     confirmingReset = false;
     try {
       status = await resetAllOptimizations();
-      profile = { max_thinking_tokens: 50000, autocompact_pct: 45, disable_adaptive_thinking: true, always_thinking_enabled: true, auto_background_tasks: false, no_flicker: false, skip_permissions: false, use_tmux: false, experimental_agent_teams: false, task_list_id: '', extra_cli_args: '' };
+      profile = { max_thinking_tokens: 50000, autocompact_pct: 45, disable_adaptive_thinking: true, always_thinking_enabled: true, auto_background_tasks: false, no_flicker: false, skip_permissions: false, use_tmux: false, experimental_agent_teams: false, task_list_id: '', extra_cli_args: '', model: '', effort_level: '' };
       showToast('All optimizations reset', 'success');
       renderView(content);
     } catch (e: any) {

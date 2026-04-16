@@ -147,6 +147,8 @@ pub fn default_profile() -> OptimizationProfile {
         experimental_agent_teams: false,
         task_list_id: String::new(),
         extra_cli_args: String::new(),
+        model: String::new(),
+        effort_level: String::new(),
     }
 }
 
@@ -167,6 +169,12 @@ pub fn build_env_export_block(profile: &OptimizationProfile) -> String {
     }
     lines.push(format!("export MAX_THINKING_TOKENS={}", profile.max_thinking_tokens));
     lines.push(format!("export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE={}", profile.autocompact_pct));
+    if !profile.model.is_empty() {
+        lines.push(format!("export ANTHROPIC_MODEL={}", profile.model));
+    }
+    if !profile.effort_level.is_empty() {
+        lines.push(format!("export CLAUDE_CODE_EFFORT_LEVEL={}", profile.effort_level));
+    }
     lines.join("\n")
 }
 
@@ -190,6 +198,12 @@ pub fn build_env_inline(profile: &OptimizationProfile) -> String {
     }
     parts.push(format!("MAX_THINKING_TOKENS={}", profile.max_thinking_tokens));
     parts.push(format!("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE={}", profile.autocompact_pct));
+    if !profile.model.is_empty() {
+        parts.push(format!("ANTHROPIC_MODEL={}", profile.model));
+    }
+    if !profile.effort_level.is_empty() {
+        parts.push(format!("CLAUDE_CODE_EFFORT_LEVEL={}", profile.effort_level));
+    }
     parts.join(" ")
 }
 
