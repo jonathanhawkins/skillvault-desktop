@@ -4,7 +4,7 @@ import { showToast } from '../components/toast';
 import { renderSidebar } from '../components/sidebar';
 import { navigate } from '../lib/router';
 import { esc, formatBytes } from '../lib/utils';
-import type { PackagedSkill } from '../lib/types';
+import type { PackagedSkill, Package } from '../lib/types';
 
 /** A publishable item — any local asset with a name and path */
 interface PublishableItem {
@@ -45,6 +45,34 @@ let currentStep: PublishStep = 'select';
 let selectedItems: PublishableItem[] = [];
 let packaged: PackagedSkill | null = null;
 let packageName = '';
+
+/** When set, the publish view runs in "update mode": selection is skipped, name is locked, version auto-bumps. */
+interface UpdateContext {
+  pkg: Package;
+  items: PublishableItem[];
+}
+let updateContext: UpdateContext | null = null;
+
+/** Bump the patch component of a semver string. "1.2.3" → "1.2.4". Falls back to "1.0.1" if unparseable. */
+function bumpPatch(version: string): string {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
+  if (!m) return '1.0.1';
+  return `${m[1]}.${m[2]}.${parseInt(m[3], 10) + 1}`;
+}
+
+/**
+ * Called from the detail page to seed the publish wizard with a package
+ * the user already owns and wants to ship a new version of.
+ */
+export function setPublishUpdateContext(pkg: Package, items: PublishableItem[]) {
+  updateContext = { pkg, items };
+  selectedItems = items.slice();
+  packageName = pkg.name;
+  packaged = null;
+  currentStep = 'select'; // will auto-advance to metadata after packaging
+}
+
+export type { PublishableItem };
 
 export async function renderPublish() {
   const content = document.getElementById('content');
@@ -93,6 +121,38 @@ export async function renderPublish() {
       content.querySelector('#retry-btn')?.addEventListener('click', () => renderPublish());
       return;
     }
+  }
+
+  // Update mode: skip selection, package immediately, jump to metadata.
+  if (updateContext && currentStep === 'select' && !packaged && selectedItems.length > 0) {
+    content.innerHTML = `
+      <div class="view-header">
+        <div class="view-header-title">
+          <h1 class="h1">Publish Update</h1>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;padding:48px 0;gap:16px">
+        <div class="spinner"></div>
+        <div style="font-size:14px;color:var(--text-secondary)">Packaging ${esc(updateContext.pkg.name)}...</div>
+      </div>
+    `;
+    try {
+      packaged = await packageSkills(
+        selectedItems.map((i) => i.name),
+        selectedItems.map((i) => i.path),
+        selectedItems.map((i) => i.itemType)
+      );
+      currentStep = 'metadata';
+      renderMetadataStep(content);
+    } catch (e: any) {
+      showToast(`Failed to package: ${e}`, 'error');
+      updateContext = null;
+      selectedItems = [];
+      packaged = null;
+      currentStep = 'select';
+      renderSelectStep(content);
+    }
+    return;
   }
 
   switch (currentStep) {
@@ -355,14 +415,22 @@ function renderMetadataStep(content: HTMLElement) {
 
   const stepsHtml = renderSteps('metadata');
   const isBundle = selectedItems.length > 1;
+  const isUpdate = updateContext !== null;
 
-  // Derive default display name from package name (kebab-case to Title Case)
-  const defaultDisplayName = packageName
-    .split(/[-_]/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
+  // Derive default display name from package name (kebab-case to Title Case).
+  // In update mode, prefer the existing package's metadata.
+  const defaultDisplayName = isUpdate
+    ? (updateContext!.pkg.display_name || updateContext!.pkg.name)
+    : packageName
+        .split(/[-_]/)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
 
-  const defaultTagline = packaged.description || '';
+  const defaultTagline = isUpdate
+    ? (updateContext!.pkg.tagline || packaged.description || '')
+    : (packaged.description || '');
+  const defaultCategory = isUpdate ? updateContext!.pkg.category : 'coding';
+  const defaultVersion = isUpdate ? bumpPatch(updateContext!.pkg.current_version) : '1.0.0';
   const sizeStr = formatBytes(packaged.size_bytes);
   const totalFiles = selectedItems.reduce((sum, s) => sum + (s.fileCount ?? 1), 0);
 
@@ -412,11 +480,17 @@ function renderMetadataStep(content: HTMLElement) {
     ? `
       <div class="publish-field">
         <label class="settings-label" for="pub-package-name">Package Name</label>
-        <input class="settings-input" id="pub-package-name" type="text" value="${esc(packageName)}" placeholder="my-skill-bundle" pattern="[${pkgNamePattern}]+">
-        <div class="settings-hint">Lowercase, alphanumeric and hyphens only</div>
+        <input class="settings-input" id="pub-package-name" type="text" value="${esc(packageName)}" placeholder="my-skill-bundle" pattern="[${pkgNamePattern}]+"${isUpdate ? ' readonly' : ''}>
+        <div class="settings-hint">${isUpdate ? 'Package name is locked for updates.' : 'Lowercase, alphanumeric and hyphens only'}</div>
       </div>
     `
-    : '';
+    : (isUpdate
+      ? `
+      <div class="publish-field">
+        <label class="settings-label">Package</label>
+        <div style="padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;font-family:'Geist Mono',monospace;font-size:13px;color:var(--text-primary)">${esc(packageName)} <span style="color:var(--text-faint)">· currently v${esc(updateContext!.pkg.current_version)}</span></div>
+      </div>
+    ` : '');
 
   content.innerHTML = `
     <div class="view-header">
@@ -444,19 +518,20 @@ function renderMetadataStep(content: HTMLElement) {
           <select class="settings-input" id="pub-category">
             ${CATEGORIES.map(
               (cat) =>
-                `<option value="${cat}"${cat === 'coding' ? ' selected' : ''}>${cat.charAt(0).toUpperCase() + cat.slice(1)}</option>`
+                `<option value="${cat}"${cat === defaultCategory ? ' selected' : ''}>${cat.charAt(0).toUpperCase() + cat.slice(1)}</option>`
             ).join('')}
           </select>
         </div>
         <div class="publish-field">
           <label class="settings-label" for="pub-version">Version</label>
-          <input class="settings-input" id="pub-version" type="text" value="1.0.0" placeholder="1.0.0">
+          <input class="settings-input" id="pub-version" type="text" value="${esc(defaultVersion)}" placeholder="1.0.0">
+          ${isUpdate ? `<div class="settings-hint">Current version: v${esc(updateContext!.pkg.current_version)} — must be higher.</div>` : ''}
         </div>
       </div>
 
       <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:24px">
-        <button class="btn" id="back-btn">Back</button>
-        <button class="btn btn--primary" id="publish-btn">Publish</button>
+        <button class="btn" id="back-btn">${isUpdate ? 'Cancel' : 'Back'}</button>
+        <button class="btn btn--primary" id="publish-btn">${isUpdate ? `Publish v${esc(defaultVersion)}` : 'Publish'}</button>
       </div>
     </div>
   `;
@@ -494,11 +569,35 @@ function renderMetadataStep(content: HTMLElement) {
     });
   }
 
-  // Back button
+  // Back / Cancel button
   content.querySelector('#back-btn')?.addEventListener('click', () => {
+    if (isUpdate) {
+      // Cancel the update and return to the package detail page.
+      const pkg = updateContext!.pkg;
+      updateContext = null;
+      selectedItems = [];
+      packaged = null;
+      packageName = '';
+      currentStep = 'select';
+      setState({ selectedPackage: pkg });
+      navigate('detail');
+      return;
+    }
     currentStep = 'select';
     renderPublish();
   });
+
+  // Keep the Publish button label in sync with the version input while in update mode.
+  if (isUpdate) {
+    const versionInput = content.querySelector('#pub-version') as HTMLInputElement | null;
+    const pubBtn = content.querySelector('#publish-btn') as HTMLButtonElement | null;
+    if (versionInput && pubBtn) {
+      versionInput.addEventListener('input', () => {
+        const v = versionInput.value.trim();
+        pubBtn.textContent = v ? `Publish v${v}` : 'Publish';
+      });
+    }
+  }
 
   // Publish button
   content.querySelector('#publish-btn')?.addEventListener('click', async () => {
@@ -622,12 +721,28 @@ async function renderPublishingStep(
       }
     });
 
-    content.querySelector('#done-btn')?.addEventListener('click', () => {
+    content.querySelector('#done-btn')?.addEventListener('click', async () => {
+      const wasUpdate = updateContext !== null;
+      const updatedPkg = updateContext?.pkg ?? null;
       currentStep = 'select';
       selectedItems = [];
       packaged = null;
       packageName = '';
-      navigate('installed');
+      updateContext = null;
+      // Refresh localState so scanners re-read .skillvault-meta.json (synced_at was just bumped).
+      try {
+        const localState = await scanLocal();
+        setState({ localState });
+      } catch {
+        // non-fatal — scan will happen on next view mount
+      }
+      if (wasUpdate && updatedPkg) {
+        // Bump the cached package to show the new current_version on the detail page.
+        setState({ selectedPackage: { ...updatedPkg, current_version: version! } });
+        navigate('detail');
+      } else {
+        navigate('installed');
+      }
     });
   } catch (e: any) {
     content.innerHTML = `
@@ -645,6 +760,7 @@ async function renderPublishingStep(
         </svg>
         <div style="font-size:16px;font-weight:600;color:#ef4444">Publishing Failed</div>
         <div style="font-size:13px;color:var(--text-secondary);max-width:400px;text-align:center">${esc(e?.toString() || 'Unknown error')}</div>
+        ${updateContext && /already exists|409/i.test(String(e ?? '')) ? `<div style="font-size:12px;color:var(--warning);max-width:400px;text-align:center">That version is already published. Bump to something higher than v${esc(updateContext.pkg.current_version)}.</div>` : ''}
         <div style="display:flex;gap:12px;margin-top:16px">
           <button class="btn" id="back-to-meta-btn">Back</button>
           <button class="btn btn--primary" id="retry-pub-btn">Retry</button>

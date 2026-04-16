@@ -149,6 +149,8 @@ fn make_statusline_from_file(path: &Path) -> Option<Statusline> {
         language,
         size_bytes,
         preview,
+        // Single-file statuslines have no meta file, so no change tracking.
+        has_local_changes: false,
     })
 }
 
@@ -192,6 +194,7 @@ fn make_statusline_from_dir(dir: &Path) -> Option<Statusline> {
         language,
         size_bytes,
         preview,
+        has_local_changes: super::skills::detect_local_changes(dir),
     })
 }
 

@@ -28,6 +28,8 @@ export interface LocalSkill {
   package_id: string | null;
   installed_version: string | null;
   project: string | null;  // null = global, "patina" = project-scoped
+  /** True when the local skill files have been modified after the last install/publish sync. */
+  has_local_changes: boolean;
 }
 
 export interface LocalAgent {
@@ -78,6 +80,8 @@ export interface Statusline {
   language: string;
   size_bytes: number;
   preview: string;
+  /** True when the statusline was installed/published from SkillVault and has local edits since last sync. */
+  has_local_changes: boolean;
 }
 
 export interface CodexConfig {

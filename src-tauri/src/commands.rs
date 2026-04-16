@@ -10,6 +10,47 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use zip::write::SimpleFileOptions;
 
+/// Current time as `{unix_seconds}Z` — must match installer::simple_iso_now().
+fn simple_iso_now_str() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}Z", now.as_secs())
+}
+
+/// Write/update `.skillvault-meta.json` in a skill directory to record that its
+/// local content now matches the just-published package. Silently skips if the
+/// path is not an existing directory (e.g. single-file statuslines). Errors are
+/// swallowed — failing to write meta should not fail the overall publish.
+fn mark_path_synced(skill_path: &str, package_id: &str, version: &str) {
+    let dir = std::path::Path::new(skill_path);
+    if !dir.is_dir() {
+        return;
+    }
+    let meta_path = dir.join(".skillvault-meta.json");
+    let now = simple_iso_now_str();
+
+    // Preserve installed_at if an existing meta is there.
+    let installed_at = std::fs::read_to_string(&meta_path)
+        .ok()
+        .and_then(|c| serde_json::from_str::<SkillvaultMeta>(&c).ok())
+        .map(|m| m.installed_at)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| now.clone());
+
+    let meta = SkillvaultMeta {
+        source: "skillvault".to_string(),
+        package_id: package_id.to_string(),
+        version: version.to_string(),
+        installed_at,
+        synced_at: now,
+        auto_update: true,
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&meta) {
+        let _ = std::fs::write(&meta_path, json);
+    }
+}
+
 /// Validate a name for use in filesystem paths and CLI arguments.
 /// Must be lowercase alphanumeric + hyphens, 1-64 chars, no leading hyphen.
 fn validate_name(name: &str, label: &str) -> Result<(), String> {
@@ -546,6 +587,15 @@ pub async fn publish_skill(
         ));
     }
 
+    // 6. Mark the local copy synced so UI stops showing "Update available"
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let skill_dir = home.join(".claude").join("skills").join(&skill_name);
+    mark_path_synced(
+        &skill_dir.to_string_lossy(),
+        &format!("{}/{}", username, skill_name),
+        &version,
+    );
+
     Ok(format!(
         "Published {}/{} v{} to skillvault.md",
         username, skill_name, version
@@ -752,6 +802,9 @@ pub async fn publish_skills(
 
     let token = token.ok_or("Not authenticated — add your API token in Settings first")?;
 
+    // Keep a copy of paths for post-publish meta-writing (package_skills consumes them).
+    let sync_paths = skill_paths.clone();
+
     // 2. Package the items (create zip with manifest)
     let packaged = package_skills(skill_names, skill_paths, item_types).await?;
     let zip_bytes = base64::engine::general_purpose::STANDARD
@@ -773,6 +826,12 @@ pub async fn publish_skills(
             "Package metadata created but upload failed: {}. Try publishing again with a new version.",
             e
         ));
+    }
+
+    // 6. Mark each local path as synced so UI stops showing "Update available"
+    let package_id = format!("{}/{}", username, package_name);
+    for path in &sync_paths {
+        mark_path_synced(path, &package_id, &version);
     }
 
     Ok(format!(

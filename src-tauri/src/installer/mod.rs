@@ -149,6 +149,7 @@ pub async fn install(
                     package_id: format!("{}/{}", author, name),
                     version: pkg.current_version.clone(),
                     installed_at: simple_iso_now(),
+                    synced_at: simple_iso_now(),
                     auto_update: true,
                 };
                 let meta_json = serde_json::to_string_pretty(&meta)
@@ -221,6 +222,7 @@ pub async fn install(
                     package_id: format!("{}/{}", author, name),
                     version: pkg.current_version.clone(),
                     installed_at: simple_iso_now(),
+                    synced_at: simple_iso_now(),
                     auto_update: true,
                 };
                 if let Ok(json) = serde_json::to_string_pretty(&meta) {
@@ -235,6 +237,7 @@ pub async fn install(
                 package_id: format!("{}/{}", author, name),
                 version: pkg.current_version.clone(),
                 installed_at: simple_iso_now(),
+                synced_at: simple_iso_now(),
                 auto_update: true,
             };
             if let Ok(json) = serde_json::to_string_pretty(&meta) {

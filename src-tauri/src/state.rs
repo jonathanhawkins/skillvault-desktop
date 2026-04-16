@@ -14,6 +14,11 @@ pub struct LocalSkill {
     pub package_id: Option<String>,
     pub installed_version: Option<String>,
     pub project: Option<String>,  // None = global, Some("patina") = project-scoped
+    /// True when this skill's local files have been modified after the last install/publish sync.
+    /// Computed by comparing max file mtime vs SkillvaultMeta.synced_at (fallback: installed_at).
+    /// Always false for SkillSource::Local (nothing to sync to).
+    #[serde(default)]
+    pub has_local_changes: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +83,11 @@ pub struct Statusline {
     pub language: String,  // "bash", "python", "javascript", "typescript"
     pub size_bytes: u64,
     pub preview: String,
+    /// True when this statusline was installed/published from SkillVault and the local
+    /// files have been modified since the last sync. False for single-file statuslines
+    /// and packages without .skillvault-meta.json.
+    #[serde(default)]
+    pub has_local_changes: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -342,6 +352,10 @@ pub struct SkillvaultMeta {
     pub package_id: String,
     pub version: String,
     pub installed_at: String,
+    /// Timestamp of the last sync (install or successful publish).
+    /// When absent on legacy files, fall back to installed_at.
+    #[serde(default)]
+    pub synced_at: String,
     pub auto_update: bool,
 }
 

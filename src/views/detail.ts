@@ -3,6 +3,7 @@ import { getPackage, installPackage, uninstallSkill, listProjects, deletePackage
 import { showToast } from '../components/toast';
 import { navigate } from '../lib/router';
 import { esc, formatNum } from '../lib/utils';
+import { setPublishUpdateContext, type PublishableItem } from './publish';
 
 export async function renderDetail() {
   const content = document.getElementById('content');
@@ -144,8 +145,62 @@ export async function renderDetail() {
 
     const isOwner = state.authenticated && state.username && pkg.author_id === state.username;
 
+    // Build publishable items for each matched local asset so we can hand them to the
+    // publish wizard in "update mode" without going through the select step.
+    const publishItems: PublishableItem[] = [];
+    if (isOwner && installed && state.localState) {
+      const ls = state.localState;
+      for (const ms of matchedSkills) {
+        // Resolve path → itemType + extra metadata by scanning every local asset list.
+        const skillHit = ls.skills.find((s) => s.path === ms.path);
+        if (skillHit) {
+          publishItems.push({
+            name: skillHit.name,
+            path: skillHit.path,
+            itemType: 'skill',
+            description: skillHit.description,
+            fileCount: skillHit.file_count,
+            project: skillHit.project,
+          });
+          continue;
+        }
+        const agentHit = ls.agents.find((a) => a.path === ms.path);
+        if (agentHit) {
+          publishItems.push({ name: agentHit.name, path: agentHit.path, itemType: 'agent', description: agentHit.description });
+          continue;
+        }
+        const teamHit = ls.teams.find((t) => t.path === ms.path);
+        if (teamHit) {
+          publishItems.push({ name: teamHit.name, path: teamHit.path, itemType: 'team', description: teamHit.description ?? undefined, fileCount: teamHit.member_count });
+          continue;
+        }
+        const ruleHit = ls.rules.find((r) => r.path === ms.path);
+        if (ruleHit) {
+          publishItems.push({ name: ruleHit.name, path: ruleHit.path, itemType: 'rule', description: ruleHit.preview, project: ruleHit.project_path });
+          continue;
+        }
+        const slHit = ls.statuslines.find((sl) => sl.path === ms.path);
+        if (slHit) {
+          publishItems.push({ name: slHit.name, path: slHit.path, itemType: 'statusline', description: `${slHit.language} statusline` });
+          continue;
+        }
+      }
+    }
+
+    // Determine whether the local copy has edits since the last install/publish sync.
+    const hasLocalChanges = isOwner && !!installed && state.localState
+      ? matchedSkills.some((ms) => {
+          const s = state.localState!.skills.find((x) => x.path === ms.path);
+          if (s?.has_local_changes) return true;
+          const sl = state.localState!.statuslines.find((x) => x.path === ms.path);
+          return !!sl?.has_local_changes;
+        })
+      : false;
+
+    const canPublishUpdate = isOwner && !!installed && publishItems.length > 0;
     const ownerBtnHtml = isOwner
-      ? `<button class="btn btn--sm" id="edit-pkg-btn" style="border-color:var(--accent);color:var(--accent)">Edit</button>
+      ? `${canPublishUpdate ? `<button class="btn btn--sm btn--primary" id="publish-update-btn" title="Package and upload a new version of this skill">${hasLocalChanges ? '↑ Publish Update' : 'Publish Update'}</button>` : ''}
+         <button class="btn btn--sm" id="edit-pkg-btn" style="border-color:var(--accent);color:var(--accent)">Edit</button>
          <button class="btn btn--sm" id="unpublish-btn" style="border-color:var(--error, #e55);color:var(--error, #e55)">Unpublish</button>`
       : '';
 
@@ -165,6 +220,10 @@ export async function renderDetail() {
             </div>
             <button class="btn btn--sm" id="detail-uninstall-btn" style="color:var(--error);border-color:var(--error);font-size:11px;padding:4px 10px">Uninstall</button>
           </div>
+          ${hasLocalChanges ? `<div style="display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:6px 10px;background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.2);border-radius:6px;font-size:12px;color:var(--accent)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 13 12 8 17 13"/><polyline points="7 17 12 12 17 17"/></svg>
+            <span>Local changes ready to publish</span>
+          </div>` : ''}
           ${Array.from(locationGroups.entries()).map(([loc, skills]) => `
             <div style="margin-top:6px">
               <div style="font-family:'Geist Mono',monospace;font-size:10px;color:var(--text-faint);letter-spacing:0.5px;margin-bottom:4px">${esc(loc.toUpperCase())}</div>
@@ -336,6 +395,12 @@ export async function renderDetail() {
     }
 
     // Owner actions
+    content.querySelector('#publish-update-btn')?.addEventListener('click', () => {
+      if (!pkg || publishItems.length === 0) return;
+      setPublishUpdateContext(pkg, publishItems);
+      navigate('publish');
+    });
+
     content.querySelector('#edit-pkg-btn')?.addEventListener('click', () => {
       setState({ selectedPackage: pkg });
       navigate('edit-package');

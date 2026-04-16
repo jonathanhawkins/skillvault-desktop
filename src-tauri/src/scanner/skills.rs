@@ -3,6 +3,120 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::time::UNIX_EPOCH;
+
+/// Parse a `simple_iso_now` timestamp (format: `{unix_seconds}Z`).
+/// Returns 0 for unparseable input.
+fn parse_iso_seconds(s: &str) -> u64 {
+    s.trim_end_matches('Z').parse::<u64>().unwrap_or(0)
+}
+
+/// Walk a skill dir and return the most recent file mtime (unix seconds).
+/// Skips `.skillvault-meta.json` itself and any other dotfiles.
+fn max_mtime_seconds(dir: &Path) -> u64 {
+    let mut max: u64 = 0;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            // Skip the meta file and hidden files/dirs — they're either ours or noise.
+            if name_str.starts_with('.') {
+                continue;
+            }
+            if path.is_dir() {
+                let sub = max_mtime_seconds(&path);
+                if sub > max {
+                    max = sub;
+                }
+            } else if let Ok(meta) = entry.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    if let Ok(d) = modified.duration_since(UNIX_EPOCH) {
+                        let secs = d.as_secs();
+                        if secs > max {
+                            max = secs;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    max
+}
+
+/// Returns true when the dir has a `.skillvault-meta.json` whose `synced_at`
+/// (or `installed_at` fallback) is older than the latest file mtime in the dir.
+/// Returns false for any path without valid meta.
+pub fn detect_local_changes(path: &Path) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+    let meta_path = path.join(".skillvault-meta.json");
+    if !meta_path.exists() {
+        return false;
+    }
+    let content = match fs::read_to_string(&meta_path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let meta: SkillvaultMeta = match serde_json::from_str(&content) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    let ref_str = if !meta.synced_at.is_empty() {
+        meta.synced_at.as_str()
+    } else {
+        meta.installed_at.as_str()
+    };
+    let ref_seconds = parse_iso_seconds(ref_str);
+    if ref_seconds == 0 {
+        return false;
+    }
+    max_mtime_seconds(path) > ref_seconds + 1
+}
+
+/// Read .skillvault-meta.json (if any) and resolve the skill's source info + whether
+/// local files have been modified since the last sync.
+///
+/// Returns (source, package_id, installed_version, has_local_changes).
+fn read_meta_and_changes(skill_dir: &Path) -> (SkillSource, Option<String>, Option<String>, bool) {
+    let meta_path = skill_dir.join(".skillvault-meta.json");
+    if !meta_path.exists() {
+        return (SkillSource::Local, None, None, false);
+    }
+
+    let content = match fs::read_to_string(&meta_path) {
+        Ok(c) => c,
+        Err(_) => return (SkillSource::Local, None, None, false),
+    };
+
+    let meta: SkillvaultMeta = match serde_json::from_str(&content) {
+        Ok(m) => m,
+        Err(_) => return (SkillSource::Local, None, None, false),
+    };
+
+    // synced_at is preferred; fall back to installed_at for legacy meta files.
+    let ref_str = if !meta.synced_at.is_empty() {
+        meta.synced_at.as_str()
+    } else {
+        meta.installed_at.as_str()
+    };
+    let ref_seconds = parse_iso_seconds(ref_str);
+    let has_changes = if ref_seconds == 0 {
+        false
+    } else {
+        // 1-second grace window — filesystems can round mtimes.
+        max_mtime_seconds(skill_dir) > ref_seconds + 1
+    };
+
+    (
+        SkillSource::Skillvault,
+        Some(meta.package_id),
+        Some(meta.version),
+        has_changes,
+    )
+}
+
 
 /// Scan a skills directory and return metadata for each installed skill
 pub fn scan_skills_dir(skills_dir: &Path, project: Option<&str>) -> Vec<LocalSkill> {
@@ -48,23 +162,8 @@ pub fn scan_skills_dir(skills_dir: &Path, project: Option<&str>) -> Vec<LocalSki
             || path.join("statusline.ts").exists()
             || path.join("statuslines").is_dir();
 
-        // Check for .skillvault-meta.json
-        let meta_path = path.join(".skillvault-meta.json");
-        let (source, package_id, installed_version) = if meta_path.exists() {
-            match fs::read_to_string(&meta_path) {
-                Ok(content) => match serde_json::from_str::<SkillvaultMeta>(&content) {
-                    Ok(meta) => (
-                        SkillSource::Skillvault,
-                        Some(meta.package_id),
-                        Some(meta.version),
-                    ),
-                    Err(_) => (SkillSource::Local, None, None),
-                },
-                Err(_) => (SkillSource::Local, None, None),
-            }
-        } else {
-            (SkillSource::Local, None, None)
-        };
+        let (source, package_id, installed_version, has_local_changes) =
+            read_meta_and_changes(&path);
 
         skills.push(LocalSkill {
             name,
@@ -79,6 +178,7 @@ pub fn scan_skills_dir(skills_dir: &Path, project: Option<&str>) -> Vec<LocalSki
             package_id,
             installed_version,
             project: project.map(|s| s.to_string()),
+            has_local_changes,
         });
     }
 
@@ -171,23 +271,8 @@ pub fn discover_skills_system_wide(already_scanned_paths: &HashSet<String>) -> V
             || skill_dir.join("statusline.ts").exists()
             || skill_dir.join("statuslines").is_dir();
 
-        // Check for .skillvault-meta.json
-        let meta_path = skill_dir.join(".skillvault-meta.json");
-        let (source, package_id, installed_version) = if meta_path.exists() {
-            match fs::read_to_string(&meta_path) {
-                Ok(content) => match serde_json::from_str::<SkillvaultMeta>(&content) {
-                    Ok(meta) => (
-                        SkillSource::Skillvault,
-                        Some(meta.package_id),
-                        Some(meta.version),
-                    ),
-                    Err(_) => (SkillSource::Local, None, None),
-                },
-                Err(_) => (SkillSource::Local, None, None),
-            }
-        } else {
-            (SkillSource::Local, None, None)
-        };
+        let (source, package_id, installed_version, has_local_changes) =
+            read_meta_and_changes(skill_dir);
 
         // Derive project name from the path — use the containing project directory name
         let project = derive_project_name(skill_dir);
@@ -205,6 +290,7 @@ pub fn discover_skills_system_wide(already_scanned_paths: &HashSet<String>) -> V
             package_id,
             installed_version,
             project,
+            has_local_changes,
         });
     }
 

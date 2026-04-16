@@ -240,17 +240,30 @@ export async function renderInstalled() {
     try {
       publishedPackages = await getMyPackages();
       if (publishedPackages.length > 0) {
+        // For each published package, check whether any matching local asset has pending edits.
+        const hasUpdates = (pkg: Package): boolean => {
+          const pkgId = `${pkg.author_id}/${pkg.name}`;
+          if (ls.skills.some((s) => s.package_id === pkgId && s.has_local_changes)) return true;
+          // Match by name as a fallback for packages that were published without an install-from-marketplace meta.
+          if (ls.skills.some((s) => s.name === pkg.name && s.has_local_changes)) return true;
+          if (ls.statuslines.some((sl) => sl.name === pkg.name && sl.has_local_changes)) return true;
+          return false;
+        };
+
         publishedHtml = `
           <div class="installed-section" style="margin-bottom:24px">
             <div class="installed-section-header">
               <span class="installed-section-label">Published by You</span>
               <span class="installed-section-count">${publishedPackages.length}</span>
             </div>
-            <div class="grid">${publishedPackages.map(pkg => `
+            <div class="grid">${publishedPackages.map(pkg => {
+              const needsUpdate = hasUpdates(pkg);
+              return `
               <div class="skill-card skill-card--clickable" data-pub-author="${esc(pkg.author_id)}" data-pub-name="${esc(pkg.name)}">
                 <div class="skill-card-header">
                   <div class="skill-card-name">${esc(pkg.display_name || pkg.name)}</div>
                   <div style="display:flex;align-items:center;gap:6px">
+                    ${needsUpdate ? `<span title="Local changes haven't been published yet" style="font-size:10px;font-weight:600;color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:2px 6px;letter-spacing:0.3px">↑ UPDATE</span>` : ''}
                     <span class="skill-card-source skill-card-source--skillvault">v${esc(pkg.current_version)}</span>
                     <button class="skill-card-delete" data-unpub-author="${esc(pkg.author_id)}" data-unpub-name="${esc(pkg.name)}" data-unpub-display="${esc(pkg.display_name || pkg.name)}" title="Unpublish" aria-label="Unpublish ${esc(pkg.name)}">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
@@ -263,7 +276,8 @@ export async function renderInstalled() {
                   <span>${pkg.download_count} downloads</span>
                 </div>
               </div>
-            `).join('')}</div>
+            `;
+            }).join('')}</div>
           </div>`;
       }
     } catch {
