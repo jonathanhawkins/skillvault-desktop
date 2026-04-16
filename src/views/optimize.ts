@@ -29,8 +29,8 @@ let profile: OptimizationProfile = {
   experimental_agent_teams: false,
   task_list_id: '',
   extra_cli_args: '',
-  model: '',
-  effort_level: '',
+  model: 'claude-opus-4-7',
+  effort_level: 'high',
 };
 
 // Model options shown in the picker. Aliases first, then pinned version IDs.
@@ -658,7 +658,7 @@ function bindEvents(content: HTMLElement) {
     confirmingReset = false;
     try {
       status = await resetAllOptimizations();
-      profile = { max_thinking_tokens: 50000, autocompact_pct: 45, disable_adaptive_thinking: true, always_thinking_enabled: true, auto_background_tasks: false, no_flicker: false, skip_permissions: false, use_tmux: false, experimental_agent_teams: false, task_list_id: '', extra_cli_args: '', model: '', effort_level: '' };
+      profile = { max_thinking_tokens: 50000, autocompact_pct: 45, disable_adaptive_thinking: true, always_thinking_enabled: true, auto_background_tasks: false, no_flicker: false, skip_permissions: false, use_tmux: false, experimental_agent_teams: false, task_list_id: '', extra_cli_args: '', model: 'claude-opus-4-7', effort_level: 'high' };
       showToast('All optimizations reset', 'success');
       renderView(content);
     } catch (e: any) {
