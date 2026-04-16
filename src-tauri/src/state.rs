@@ -375,7 +375,7 @@ pub struct OptimizationProfile {
 }
 
 fn default_thinking_tokens() -> u32 { 50000 }
-fn default_autocompact() -> u32 { 45 }
+fn default_autocompact() -> u32 { 40 }
 fn default_true() -> bool { true }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

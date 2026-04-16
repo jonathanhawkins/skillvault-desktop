@@ -19,7 +19,7 @@ import { showToast } from '../components/toast';
 // Current profile state (in-memory, not persisted until applied)
 let profile: OptimizationProfile = {
   max_thinking_tokens: 50000,
-  autocompact_pct: 45,
+  autocompact_pct: 40,
   disable_adaptive_thinking: true,
   always_thinking_enabled: true,
   auto_background_tasks: false,
@@ -658,7 +658,7 @@ function bindEvents(content: HTMLElement) {
     confirmingReset = false;
     try {
       status = await resetAllOptimizations();
-      profile = { max_thinking_tokens: 50000, autocompact_pct: 45, disable_adaptive_thinking: true, always_thinking_enabled: true, auto_background_tasks: false, no_flicker: false, skip_permissions: false, use_tmux: false, experimental_agent_teams: false, task_list_id: '', extra_cli_args: '', model: 'claude-opus-4-7', effort_level: 'high' };
+      profile = { max_thinking_tokens: 50000, autocompact_pct: 40, disable_adaptive_thinking: true, always_thinking_enabled: true, auto_background_tasks: false, no_flicker: false, skip_permissions: false, use_tmux: false, experimental_agent_teams: false, task_list_id: '', extra_cli_args: '', model: 'claude-opus-4-7', effort_level: 'high' };
       showToast('All optimizations reset', 'success');
       renderView(content);
     } catch (e: any) {

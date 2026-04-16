@@ -137,7 +137,7 @@ pub fn validate_profile(profile: &OptimizationProfile) -> Result<(), String> {
 pub fn default_profile() -> OptimizationProfile {
     OptimizationProfile {
         max_thinking_tokens: 50000,
-        autocompact_pct: 45,
+        autocompact_pct: 40,
         disable_adaptive_thinking: true,
         always_thinking_enabled: true,
         auto_background_tasks: false,
